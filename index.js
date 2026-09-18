@@ -475,7 +475,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         console.error('❌ Forwarding error:', e.message);
     }
 });
-
+}
 
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
