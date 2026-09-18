@@ -499,14 +499,32 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
         if (shouldForward) {
-            for (const targetJid of targetList) {
+        for (const targetJid of targetList) {
+            let success = false;
+
+            // 3 times retry mechanism
+            for (let attempt = 1; attempt <= 3; attempt++) {
                 try {
-                    await wasi_sock.sendMessage(targetJid, { forward: wasi_msg });
-                    console.log(`✅ Forwarded to ${targetJid}`);
+                    await wasi_sock.relayMessage(
+                        targetJid,
+                        wasi_msg.message,
+                        { messageId: wasi_sock.generateMessageTag() }
+                    );
+                    console.log(`✅ Clean message forwarded to ${targetJid}`);
+                    success = true;
+                    break;
                 } catch (err) {
-                    console.error(`❌ Error forwarding to ${targetJid}:`, err.message);
+                    console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
+                    if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
                 }
             }
+
+            // Delay only for videos
+            if (isVideo && delayTime > 0) {
+                await new Promise(res => setTimeout(res, delayTime));
+            }
+        }
+
         }
 
     } catch (e) {
