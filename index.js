@@ -450,72 +450,99 @@ async function startSession(sessionId) {
                 if (relayMsg.viewOnceMessageV2)
                     relayMsg = relayMsg.viewOnceMessageV2.message;
                 if (relayMsg.viewOnceMessage)
-                    relayMsg = relayMsg.viewOnceMessage.message;
+// Universal JID Cleaner
+const cleanJid = (id) => id ? id.split(':')[0].replace(/@c\.us|@s\.whatsapp\.net|@g\.us/, '').trim() : '';
 
-                const isMedia = relayMsg.imageMessage ||
-                    relayMsg.videoMessage ||
-                    relayMsg.audioMessage ||
-                    relayMsg.documentMessage ||
-                    relayMsg.stickerMessage;
+if (!global.allowedForwardTypes) {
+    global.allowedForwardTypes = (process.env.FORWARD_TYPES || 'video,image,text,document,sticker').toLowerCase().split(',').map(t => t.trim());
+}
 
-                let isEmojiOnly = false;
-                if (relayMsg.conversation) {
-                    const emojiRegex = /^(?:\p{Extended_Pictographic}|\s)+$/u;
-                    isEmojiOnly = emojiRegex.test(relayMsg.conversation);
-                }
+wasi_sock.ev.on('messages.upsert', async wasi_m => {
+    try {
+        const wasi_msg = wasi_m.messages[0];
+        if (!wasi_msg || !wasi_msg.message) return;
 
-                if (!isMedia && !isEmojiOnly) return;
+        const rawFrom = wasi_msg.key.remoteJid;
+        const cleanFrom = cleanJid(rawFrom);
+        
+        // Extract Text Properly from Any Message Object
+        const msgContent = wasi_msg.message;
+        const msgText = (
+            msgContent.conversation || 
+            msgContent.extendedTextMessage?.text || 
+            msgContent.imageMessage?.caption || 
+            msgContent.videoMessage?.caption || 
+            ''
+        ).trim();
 
-                if (relayMsg.imageMessage?.caption) {
-                    relayMsg.imageMessage.caption = replaceCaption(relayMsg.imageMessage.caption);
-                }
-                if (relayMsg.videoMessage?.caption) {
-                    relayMsg.videoMessage.caption = replaceCaption(relayMsg.videoMessage.caption);
-                }
-                if (relayMsg.documentMessage?.caption) {
-                    relayMsg.documentMessage.caption = replaceCaption(relayMsg.documentMessage.caption);
-                }
+        if (msgText) {
+            const lowerMsg = msgText.toLowerCase();
 
-                console.log(`📦 Forwarding (cleaned) from ${wasi_origin}`);
-
-                                        // Only Videos/Video Albums have 8s delay, Photos & Documents have 0s delay (Instant)
-        const isVideo = relayMsg.videoMessage || relayMsg.videoMessage?.caption;
-        const delayTime = isVideo ? 8000 : 0;
-
-        for (const targetJid of TARGET_JIDS) {
-            let success = false;
-            
-            // 3 times retry mechanism
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    await wasi_sock.relayMessage(
-                        targetJid,
-                        relayMsg,
-                        { messageId: wasi_sock.generateMessageTag() }
-                    );
-                    console.log(`✅ Clean message forwarded to ${targetJid}`);
-                    success = true;
-                    break;
-                } catch (err) {
-                    console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                    if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
-                }
+            // 1. PING COMMAND
+            if (lowerMsg === '!ping') {
+                await wasi_sock.sendMessage(rawFrom, { text: 'Raju-Autoforward-Bot is Working Fast (923071782626)' }, { quoted: wasi_msg });
+                return;
             }
 
-            // Delay only for videos
-            if (delayTime > 0) {
-                await new Promise(res => setTimeout(res, delayTime));
+            // 2. JID COMMAND
+            if (lowerMsg === '!jid') {
+                await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
+                return;
             }
-        }
 
+            // 3. SETTYPE COMMAND
+            if (lowerMsg.startsWith('!settype')) {
+                const args = msgText.replace(/^!settype/i, '').trim();
+                if (!args) {
+                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Types dein. Ex:\n!settype video,document\nya: !settype all' }, { quoted: wasi_msg });
+                    return;
+                }
+                if (args.toLowerCase() === 'all') {
+                    global.allowedForwardTypes = ['video', 'image', 'text', 'document', 'sticker'];
+                } else {
+                    global.allowedForwardTypes = args.toLowerCase().split(',').map(t => t.trim());
+                }
 
+                await wasi_sock.sendMessage(rawFrom, { text: `✅ Active Types: *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
+                return;
+            }
 
-
-            } catch (err) {
-                console.error('Auto Forward Error:', err.message);
+            // 4. GETTYPE COMMAND
+            if (lowerMsg === '!gettype') {
+                await wasi_sock.sendMessage(rawFrom, { text: `📊 Current Types: *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
+                return;
             }
         }
-    });
+
+        // FORWARDING LOGIC
+        const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(cleanJid);
+        if (!sourceList.includes(cleanFrom)) return;
+
+        const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
+        if (targetList.length === 0) return;
+
+        const isVideo = !!(msgContent.videoMessage);
+        const isImage = !!(msgContent.imageMessage);
+        const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
+        const isDocument = !!(msgContent.documentMessage);
+        const isSticker = !!(msgContent.stickerMessage);
+
+        let shouldForward = false;
+        if (isVideo && global.allowedForwardTypes.includes('video')) shouldForward = true;
+        if (isImage && global.allowedForwardTypes.includes('image')) shouldForward = true;
+        if (isText && global.allowedForwardTypes.includes('text')) shouldForward = true;
+        if (isDocument && global.allowedForwardTypes.includes('document')) shouldForward = true;
+        if (isSticker && global.allowedForwardTypes.includes('sticker')) shouldForward = true;
+
+        if (!shouldForward) return;
+
+        for (const targetJid of targetList) {
+            try {
+                await wasi_sock.forwardMessage(targetJid, wasi_msg, { forceForward: true });
+            } catch (err) {}
+        }
+    } catch (e) {}
+});
 }
 
 // ============================================================
