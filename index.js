@@ -431,10 +431,15 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const rawFrom = wasi_msg.key.remoteJid;
         const cleanFrom = cleanJid(rawFrom);
         
-        // Extract Text Properly
-        const mType = Object.keys(wasi_msg.message)[0];
-        const msgText = (mType === 'conversation' ? wasi_msg.message.conversation : 
-                         mType === 'extendedTextMessage' ? wasi_msg.message.extendedTextMessage.text : '').trim();
+        // Extract Text Properly from Any Message Object
+        const msgContent = wasi_msg.message;
+        const msgText = (
+            msgContent.conversation || 
+            msgContent.extendedTextMessage?.text || 
+            msgContent.imageMessage?.caption || 
+            msgContent.videoMessage?.caption || 
+            ''
+        ).trim();
 
         if (msgText) {
             const lowerMsg = msgText.toLowerCase();
@@ -453,7 +458,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
 
             // 3. SETTYPE COMMAND
             if (lowerMsg.startsWith('!settype')) {
-                const args = msgText.slice(8).trim();
+                const args = msgText.replace(/^!settype/i, '').trim();
                 if (!args) {
                     await wasi_sock.sendMessage(rawFrom, { text: '❌ Types dein. Ex:\n!settype video,document\nya: !settype all' }, { quoted: wasi_msg });
                     return;
@@ -482,7 +487,6 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
         if (targetList.length === 0) return;
 
-        const msgContent = wasi_msg.message;
         const isVideo = !!(msgContent.videoMessage);
         const isImage = !!(msgContent.imageMessage);
         const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
@@ -505,6 +509,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         }
     } catch (e) {}
 });
+
 
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
