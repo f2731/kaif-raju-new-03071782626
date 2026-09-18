@@ -448,12 +448,30 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
             return;
         }
-        // 3. GJID COMMAND
+        // 3. ALL GROUPS & COMMUNITIES JID LIST
         if (msgText.toLowerCase() === '!gjid') {
-            await wasi_sock.sendMessage(rawFrom, { text: `🏷️ Group JID: ${rawFrom}` }, { quoted: wasi_msg });
+            try {
+                const getGroups = await wasi_sock.groupFetchAllParticipating();
+                const groups = Object.values(getGroups);
+
+                if (groups.length === 0) {
+                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Koi group ya community nahi mili.' }, { quoted: wasi_msg });
+                    return;
+                }
+
+                let txt = '📌 *Groups List:*\n\n';
+                groups.forEach((g, i) => {
+                    const isComm = g.isCommunity || g.isCommunityAnnounce ? 'Community' : 'Group';
+                    txt += `${i + 1}. 📲 *${g.subject}*\n👥 Members: ${g.participants ? g.participants.length : 'N/A'}\n🆔 : \`${g.id}\`\n📝 Type: ${isComm}\n__________________\n\n`;
+                });
+
+                await wasi_sock.sendMessage(rawFrom, { text: txt }, { quoted: wasi_msg });
+            } catch (err) {
+                await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
+            }
             return;
         }
-        
+             
         // FORWARDING LOGIC
         const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(id => cleanJid(id));
         if (!sourceList.some(src => cleanFrom.includes(src))) return;
