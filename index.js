@@ -498,16 +498,17 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isDocument && allowedTypes.includes('document')) shouldForward = true;
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
-        if (!shouldForward) return;
-
-        for (const targetJid of targetList) {
-            try {
-                await wasi_sock.forwardMessage(targetJid, wasi_msg, { forceForward: true });
-                console.log(`✅ Forwarded to ${targetJid}`);
-            } catch (err) {
-                console.error(`❌ Error forwarding to ${targetJid}:`, err.message);
+        if (shouldForward) {
+            for (const targetJid of targetList) {
+                try {
+                    await wasi_sock.sendMessage(targetJid, { forward: wasi_msg });
+                    console.log(`✅ Forwarded to ${targetJid}`);
+                } catch (err) {
+                    console.error(`❌ Error forwarding to ${targetJid}:`, err.message);
+                }
             }
         }
+
     } catch (e) {
         console.error('❌ General Error:', e.message);
     }
