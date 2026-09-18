@@ -543,7 +543,6 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         }
     } catch (e) {}
 });
-}
 
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
