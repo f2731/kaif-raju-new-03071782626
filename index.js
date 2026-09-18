@@ -343,7 +343,36 @@ async function processCommand(sock, msg) {
                     else if (command === '!forward') {
                 await handleForwardCommand(sock, msg, from);
                     }
-        
+                    else if (command.startsWith('!movie ')) {
+                const movieQuery = command.replace('!movie ', '').trim();
+                if (!movieQuery) {
+                    await sock.sendMessage(from, { text: '⚠️ برائے مہربانی فلم کا نام لکھیں۔ مثال: *!movie Avatar*' });
+                    return;
+                }
+                try {
+                    await sock.sendMessage(from, { text: `🔍 *${movieQuery}* تلاش کی جا رہی ہے...` });
+                    const response = await fetch(`https://api.popcorntime.gq/movies/1?keywords=${encodeURIComponent(movieQuery)}`);
+                    const data = await response.json();
+                    if (!data || data.length === 0) {
+                        await sock.sendMessage(from, { text: `❌ *${movieQuery}* نہیں ملی۔` });
+                        return;
+                    }
+                    const movie = data[0];
+                    const title = movie.title || 'N/A';
+                    const year = movie.year || 'N/A';
+                    let downloadLinks = '';
+                    if (movie.torrents && movie.torrents.en) {
+                        const torrents = movie.torrents.en;
+                        if (torrents['720p']) downloadLinks += `📌 *720p HD:* ${torrents['720p'].url}\n`;
+                        if (torrents['1080p']) downloadLinks += `📌 *1080p Full HD:* ${torrents['1080p'].url}\n`;
+                    }
+                    const captionText = `🎬 *${title} (${year})*\n\n🚀 *Fast Download Links:*\n${downloadLinks || 'ڈاؤن لوڈ لنک دستیاب نہیں ہے۔'}`;
+                    await sock.sendMessage(from, { text: captionText });
+                } catch (err) {
+                    await sock.sendMessage(from, { text: '❌ مووی تلاش کرنے میں مسئلہ آیا۔' });
+                }
+            }
+
     } catch (error) {
         console.error('Command execution error:', error);
     }
