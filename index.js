@@ -416,36 +416,76 @@ async function startSession(sessionId) {
 
     wasi_sock.ev.on('creds.update', saveCreds);
 
-    // Universal JID Cleaner for All Countries (+91, +55, +51 etc.)
-const cleanJid = (id) => {
-    if (!id) return '';
-    return id.split(':')[0].replace(/@c\.us|@s\.whatsapp\.net|@g\.us/, '').trim();
-};
+    // Universal JID Cleaner
+const cleanJid = (id) => id ? id.split(':')[0].replace(/@c\.us|@s\.whatsapp\.net|@g\.us/, '').trim() : '';
 
-// AUTO FORWARD HANDLER (ALL COUNTRY & MEDIA SUPPORT)
+if (!global.allowedForwardTypes) {
+    global.allowedForwardTypes = (process.env.FORWARD_TYPES || 'video,image,text,document,sticker').toLowerCase().split(',').map(t => t.trim());
+}
+
 wasi_sock.ev.on('messages.upsert', async wasi_m => {
     try {
         const wasi_msg = wasi_m.messages[0];
         if (!wasi_msg || !wasi_msg.message) return;
 
-        // Extract Source Chat ID
         const rawFrom = wasi_msg.key.remoteJid;
         const cleanFrom = cleanJid(rawFrom);
+        
+        // Extract Text Properly (Handling all Baileys structures)
+        const msgContent = wasi_msg.message;
+        const msgText = (
+            msgContent.conversation || 
+            msgContent.extendedTextMessage?.text || 
+            msgContent.imageMessage?.caption || 
+            msgContent.videoMessage?.caption || 
+            ''
+        ).trim();
 
-        // SOURCE JID CHECK
+        if (msgText) {
+            const lowerMsg = msgText.toLowerCase();
+
+            // 1. PING COMMAND
+            if (lowerMsg === '!ping') {
+                await wasi_sock.sendMessage(rawFrom, { text: '⚡ Raju AutoForward Bot Online!' }, { quoted: wasi_msg });
+                return;
+            }
+
+            // 2. JID COMMAND
+            if (lowerMsg === '!jid') {
+                await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
+                return;
+            }
+
+            // 3. SETTYPE COMMAND
+            if (lowerMsg.startsWith('!settype')) {
+                const args = msgText.replace(/^!settype/i, '').trim();
+                if (!args) {
+                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Types dein. Ex:\n!settype video,document\nya: !settype all' }, { quoted: wasi_msg });
+                    return;
+                }
+                if (args.toLowerCase() === 'all') {
+                    global.allowedForwardTypes = ['video', 'image', 'text', 'document', 'sticker'];
+                } else {
+                    global.allowedForwardTypes = args.toLowerCase().split(',').map(t => t.trim());
+                }
+
+                await wasi_sock.sendMessage(rawFrom, { text: `✅ Active Types: *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
+                return;
+            }
+
+            // 4. GETTYPE COMMAND
+            if (lowerMsg === '!gettype') {
+                await wasi_sock.sendMessage(rawFrom, { text: `📊 Current Types: *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
+                return;
+            }
+        }
+
+        // FORWARDING LOGIC
         const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(cleanJid);
         if (!sourceList.includes(cleanFrom)) return;
 
-        // TARGET JIDS LIST
         const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
         if (targetList.length === 0) return;
-
-        // HEROKU FORWARD_TYPES FILTER
-        const msgContent = wasi_msg.message;
-        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,text,document,sticker')
-            .toLowerCase()
-            .split(',')
-            .map(t => t.trim());
 
         const isVideo = !!(msgContent.videoMessage);
         const isImage = !!(msgContent.imageMessage);
@@ -454,75 +494,22 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const isSticker = !!(msgContent.stickerMessage);
 
         let shouldForward = false;
-        if (isVideo && allowedTypes.includes('video')) shouldForward = true;
-        if (isImage && allowedTypes.includes('image')) shouldForward = true;
-        if (isText && allowedTypes.includes('text')) shouldForward = true;
-        if (isDocument && allowedTypes.includes('document')) shouldForward = true;
-        if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
+        if (isVideo && global.allowedForwardTypes.includes('video')) shouldForward = true;
+        if (isImage && global.allowedForwardTypes.includes('image')) shouldForward = true;
+        if (isText && global.allowedForwardTypes.includes('text')) shouldForward = true;
+        if (isDocument && global.allowedForwardTypes.includes('document')) shouldForward = true;
+        if (isSticker && global.allowedForwardTypes.includes('sticker')) shouldForward = true;
 
         if (!shouldForward) return;
 
-        // Forward Message to All Targets
         for (const targetJid of targetList) {
             try {
                 await wasi_sock.forwardMessage(targetJid, wasi_msg, { forceForward: true });
-                console.log(`✅ Forwarded post from ${cleanFrom} to ${targetJid}`);
-            } catch (err) {
-                console.error(`❌ Failed forwarding to ${targetJid}:`, err.message);
+            } catch (err) {}
+        }
+    } catch (e) {}
+});
             }
-        }
-    } catch (e) {
-        console.error('❌ Forwarding error:', e.message);
-    }
-});
-}
-
-// ============================================================
-// 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
-// ============================================================
-
-// -----------------------------------------------------------------------------
-// API: GET STATUS
-// -----------------------------------------------------------------------------
-wasi_app.get('/api/status', async (req, res) => {
-    const sessionId = req.query.sessionId || config.sessionId || 'wasi_session';
-    const session = sessions.get(sessionId);
-
-    let qrDataUrl = null;
-    let connected = false;
-    let dbConnected = false;
-
-    // Check database connection
-    if (config.mongoDbUrl) {
-        try {
-            // You can add your actual DB check here
-            dbConnected = true; // Placeholder - replace with actual check
-        } catch (e) {
-            dbConnected = false;
-        }
-    }
-
-    if (session) {
-        connected = session.isConnected;
-        if (session.qr) {
-            try {
-                qrDataUrl = await QRCode.toDataURL(session.qr, { width: 256 });
-            } catch (e) { }
-        }
-    }
-
-    res.json({
-        sessionId,
-        connected,
-        qr: qrDataUrl,
-        dbConnected,
-        dbConfigured: !!config.mongoDbUrl,
-        phoneNumber: connected ? 'Connected ✅' : '-',
-        lastActive: new Date().toISOString(),
-        activeSessions: Array.from(sessions.keys())
-    });
-});
-
 // -----------------------------------------------------------------------------
 // API: RESTART BOT
 // -----------------------------------------------------------------------------
