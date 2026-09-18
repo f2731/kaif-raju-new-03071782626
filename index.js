@@ -457,7 +457,31 @@ async function startSession(sessionId) {
                     relayMsg.audioMessage ||
                     relayMsg.documentMessage ||
                     relayMsg.stickerMessage;
+            // Heroku Config Settings (Toggle Options)
+                        // HEROKU FORWARD_TYPES FILTER (Single Variable)
+            const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
+                .toLowerCase()
+                .split(',')
+                .map(t => t.trim());
 
+            const isVideo = !!(relayMsg.videoMessage);
+            const isImage = !!(relayMsg.imageMessage);
+            const isText = !!(relayMsg.conversation || relayMsg.extendedTextMessage);
+            const isDocument = !!(relayMsg.documentMessage);
+            const isAudio = !!(relayMsg.audioMessage || relayMsg.voiceMessage);
+            const isSticker = !!(relayMsg.stickerMessage);
+
+            let shouldForward = false;
+            if (isVideo && allowedTypes.includes('video')) shouldForward = true;
+            if (isImage && allowedTypes.includes('image')) shouldForward = true;
+            if (isText && allowedTypes.includes('text')) shouldForward = true;
+            if (isDocument && allowedTypes.includes('document')) shouldForward = true;
+            if (isAudio && allowedTypes.includes('audio')) shouldForward = true;
+            if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
+
+            if (!shouldForward) return;
+
+                
                 let isEmojiOnly = false;
                 if (relayMsg.conversation) {
                     const emojiRegex = /^(?:\p{Extended_Pictographic}|\s)+$/u;
