@@ -427,7 +427,7 @@ if (!global.allowedForwardTypes) {
     global.allowedForwardTypes = (process.env.FORWARD_TYPES || 'video,image,text,document,sticker').toLowerCase().split(',').map(t => t.trim());
 }
 
-// AUTO FORWARD HANDLER & COMMANDS
+// AUTO FORWARD HANDLER & ALL COMMANDS
 wasi_sock.ev.on('messages.upsert', async wasi_m => {
     try {
         const wasi_msg = wasi_m.messages[0];
@@ -440,7 +440,19 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const msgText = (wasi_msg.message.conversation || 
                          wasi_msg.message.extendedTextMessage?.text || '').trim();
 
-        // COMMAND: !settype (works anywhere, from self or groups)
+        // COMMAND 1: !ping
+        if (msgText === '!ping') {
+            await wasi_sock.sendMessage(rawFrom, { text: 'Raju-Autoforward-Bot is Working Fast (923071782626)' }, { quoted: wasi_msg });
+            return;
+        }
+
+        // COMMAND 2: !jid
+        if (msgText === '!jid') {
+            await wasi_sock.sendMessage(rawFrom, { text: `📍 آپ کی JID یہ ہے:\n\`${rawFrom}\`` }, { quoted: wasi_msg });
+            return;
+        }
+
+        // COMMAND 3: !settype
         if (msgText.startsWith('!settype')) {
             const args = msgText.replace('!settype', '').trim();
             if (!args) {
@@ -458,7 +470,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             return;
         }
 
-        // COMMAND: !gettype
+        // COMMAND 4: !gettype
         if (msgText === '!gettype') {
             await wasi_sock.sendMessage(rawFrom, { text: `📊 موجودہ فارورڈنگ ٹائپس:\n📌 *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
             return;
@@ -502,6 +514,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         console.error('❌ Forwarding error:', e.message);
     }
 });
+
 
 
 // ============================================================
