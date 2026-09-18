@@ -417,11 +417,7 @@ async function startSession(sessionId) {
     wasi_sock.ev.on('creds.update', saveCreds);
 
 // Universal JID Cleaner
-const cleanJid = (id) => id ? id.split(':')[0].replace(/@c\.us|@s\.whatsapp\.net|@g\.us/, '').trim() : '';
-
-if (!global.allowedForwardTypes) {
-    global.allowedForwardTypes = (process.env.FORWARD_TYPES || 'video,image,text,document,sticker').toLowerCase().split(',').map(t => t.trim());
-}
+const cleanJid = (id) => id ? id.split(':')[0].trim() : '';
 
 wasi_sock.ev.on('messages.upsert', async wasi_m => {
     try {
@@ -430,9 +426,9 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
 
         const rawFrom = wasi_msg.key.remoteJid;
         const cleanFrom = cleanJid(rawFrom);
-        
-        // Extract Text Properly from Any Message Object
         const msgContent = wasi_msg.message;
+
+        // Extract Text Properly
         const msgText = (
             msgContent.conversation || 
             msgContent.extendedTextMessage?.text || 
@@ -441,51 +437,30 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             ''
         ).trim();
 
-        if (msgText) {
-            const lowerMsg = msgText.toLowerCase();
+        // 1. PING COMMAND
+        if (msgText.toLowerCase() === '!ping') {
+            await wasi_sock.sendMessage(rawFrom, { text: '⚡ Raju AutoForward Bot Online!' }, { quoted: wasi_msg });
+            return;
+        }
 
-            // 1. PING COMMAND
-            if (lowerMsg === '!ping') {
-                await wasi_sock.sendMessage(rawFrom, { text: 'Raju-Autoforward-Bot is Working Fast (923071782626)' }, { quoted: wasi_msg });
-                return;
-            }
-
-            // 2. JID COMMAND
-            if (lowerMsg === '!jid') {
-                await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
-                return;
-            }
-
-            // 3. SETTYPE COMMAND
-            if (lowerMsg.startsWith('!settype')) {
-                const args = msgText.replace(/^!settype/i, '').trim();
-                if (!args) {
-                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Types dein. Ex:\n!settype video,document\nya: !settype all' }, { quoted: wasi_msg });
-                    return;
-                }
-                if (args.toLowerCase() === 'all') {
-                    global.allowedForwardTypes = ['video', 'image', 'text', 'document', 'sticker'];
-                } else {
-                    global.allowedForwardTypes = args.toLowerCase().split(',').map(t => t.trim());
-                }
-
-                await wasi_sock.sendMessage(rawFrom, { text: `✅ Active Types: *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
-                return;
-            }
-
-            // 4. GETTYPE COMMAND
-            if (lowerMsg === '!gettype') {
-                await wasi_sock.sendMessage(rawFrom, { text: `📊 Current Types: *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
-                return;
-            }
+        // 2. JID COMMAND
+        if (msgText.toLowerCase() === '!jid') {
+            await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
+            return;
         }
 
         // FORWARDING LOGIC
-        const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(cleanJid);
-        if (!sourceList.includes(cleanFrom)) return;
+        const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(id => cleanJid(id));
+        if (!sourceList.some(src => cleanFrom.includes(src))) return;
 
         const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
         if (targetList.length === 0) return;
+
+        // Directly reading FORWARD_TYPES from Heroku Env
+        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
+            .toLowerCase()
+            .split(',')
+            .map(t => t.trim());
 
         const isVideo = !!(msgContent.videoMessage);
         const isImage = !!(msgContent.imageMessage);
@@ -494,22 +469,27 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const isSticker = !!(msgContent.stickerMessage);
 
         let shouldForward = false;
-        if (isVideo && global.allowedForwardTypes.includes('video')) shouldForward = true;
-        if (isImage && global.allowedForwardTypes.includes('image')) shouldForward = true;
-        if (isText && global.allowedForwardTypes.includes('text')) shouldForward = true;
-        if (isDocument && global.allowedForwardTypes.includes('document')) shouldForward = true;
-        if (isSticker && global.allowedForwardTypes.includes('sticker')) shouldForward = true;
+        if (isVideo && allowedTypes.includes('video')) shouldForward = true;
+        if (isImage && allowedTypes.includes('image')) shouldForward = true;
+        if (isText && allowedTypes.includes('text')) shouldForward = true;
+        if (isDocument && allowedTypes.includes('document')) shouldForward = true;
+        if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
         if (!shouldForward) return;
 
         for (const targetJid of targetList) {
             try {
                 await wasi_sock.forwardMessage(targetJid, wasi_msg, { forceForward: true });
-            } catch (err) {}
+                console.log(`✅ Forwarded to ${targetJid}`);
+            } catch (err) {
+                console.error(`❌ Error forwarding to ${targetJid}:`, err.message);
+            }
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error('❌ General Error:', e.message);
+    }
 });
-}
+
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
 // ============================================================
