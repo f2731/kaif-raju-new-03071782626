@@ -328,50 +328,57 @@ async function processCommand(sock, msg) {
     
     if (!text || !text.startsWith('!')) return;
     
-    const command = text.trim().toLowerCase();
-    
-    try {
-        if (command === '!ping') {
-            await handlePingCommand(sock, from);
-        } 
-        else if (command === '!jid') {
-            await handleJidCommand(sock, from);
-        }
-                else if (command === '!gjid') {
-            await handleGjidCommand(sock, from);
-        }
-                    else if (command === '!forward') {
+            const command = text.trim();
+        const lowerCommand = command.toLowerCase();
+
+        try {
+            if (lowerCommand === '!ping') {
+                await handlePingCommand(sock, from);
+            }
+            else if (lowerCommand === '!jid') {
+                await handleJidCommand(sock, from);
+            }
+            else if (lowerCommand === '!gjid') {
+                await handleGjidCommand(sock, from);
+            }
+            else if (lowerCommand === '!forward') {
                 await handleForwardCommand(sock, msg, from);
-                    }
-                    else if (command.startsWith('!movie ')) {
-                const movieQuery = command.replace('!movie ', '').trim();
+            }
+            else if (lowerCommand.startsWith('!movie')) {
+                const movieQuery = command.slice(6).trim();
+                
                 if (!movieQuery) {
-                    await sock.sendMessage(from, { text: '⚠️ برائے مہربانی فلم کا نام لکھیں۔ مثال: *!movie Avatar*' });
+                    await sock.sendMessage(from, { text: '⚠️ برائے مہربانی فلم کا نام لکھیں۔ مثال: *!movie Pushpa*' });
                     return;
                 }
+
+                await sock.sendMessage(from, { text: `🔍 *${movieQuery}* تلاش کی جا رہی ہے...` });
+
                 try {
-                    await sock.sendMessage(from, { text: `🔍 *${movieQuery}* تلاش کی جا رہی ہے...` });
-                    const response = await fetch(`https://api.popcorntime.gq/movies/1?keywords=${encodeURIComponent(movieQuery)}`);
-                    const data = await response.json();
+                    const res = await fetch(`https://api.popcorntime.gq/movies/1?keywords=${encodeURIComponent(movieQuery)}`);
+                    const data = await res.json();
+
                     if (!data || data.length === 0) {
                         await sock.sendMessage(from, { text: `❌ *${movieQuery}* نہیں ملی۔` });
                         return;
                     }
+
                     const movie = data[0];
-                    const title = movie.title || 'N/A';
-                    const year = movie.year || 'N/A';
                     let downloadLinks = '';
                     if (movie.torrents && movie.torrents.en) {
                         const torrents = movie.torrents.en;
                         if (torrents['720p']) downloadLinks += `📌 *720p HD:* ${torrents['720p'].url}\n`;
                         if (torrents['1080p']) downloadLinks += `📌 *1080p Full HD:* ${torrents['1080p'].url}\n`;
                     }
-                    const captionText = `🎬 *${title} (${year})*\n\n🚀 *Fast Download Links:*\n${downloadLinks || 'ڈاؤن لوڈ لنک دستیاب نہیں ہے۔'}`;
+
+                    const captionText = `🎬 *${movie.title} (${movie.year || ''})*\n\n🚀 *فاسٹ ڈاؤن لوڈ لنکس:*\n${downloadLinks || 'لنک دستیاب نہیں ہے۔'}`;
                     await sock.sendMessage(from, { text: captionText });
+
                 } catch (err) {
                     await sock.sendMessage(from, { text: '❌ مووی تلاش کرنے میں مسئلہ آیا۔' });
                 }
             }
+
 
     } catch (error) {
         console.error('Command execution error:', error);
