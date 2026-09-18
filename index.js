@@ -520,8 +520,9 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             }
 
             // Delay only for videos
-            if (isVideo && delayTime > 0) {
-                await new Promise(res => setTimeout(res, delayTime));
+if (isVideo) {
+    await new Promise(res => setTimeout(res, 2000));
+
             }
         }
 
