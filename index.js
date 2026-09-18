@@ -416,107 +416,66 @@ async function startSession(sessionId) {
 
     wasi_sock.ev.on('creds.update', saveCreds);
 
-    // AUTO FORWARD MESSAGE HANDLER
-    wasi_sock.ev.on('messages.upsert', async wasi_m => {
-    const wasi_msg = wasi_m.messages[0];
-    if (!wasi_msg.message) return;
+    // Universal JID Cleaner for All Countries (+91, +55, +51 etc.)
+const cleanJid = (id) => {
+    if (!id) return '';
+    return id.split(':')[0].replace(/@c\.us|@s\.whatsapp\.net|@g\.us/, '').trim();
+};
 
-    // JID Cleaning: ڈیوائس پورٹ (:1 یا :2) ہٹائے گا لیکن @g.us برقرار رکھے گا
-    const cleanJid = (id) => id ? id.replace(/:[0-9]+@/, '@').trim() : '';
+// AUTO FORWARD HANDLER (ALL COUNTRY & MEDIA SUPPORT)
+wasi_sock.ev.on('messages.upsert', async wasi_m => {
+    try {
+        const wasi_msg = wasi_m.messages[0];
+        if (!wasi_msg || !wasi_msg.message) return;
 
-    const wasi_origin = cleanJid(wasi_msg.key.remoteJid);
-    const cleanedSources = (SOURCE_JIDS || []).map(id => cleanJid(id));
+        // Extract Source Chat ID
+        const rawFrom = wasi_msg.key.remoteJid;
+        const cleanFrom = cleanJid(rawFrom);
 
-    const wasi_text = wasi_msg.message.conversation ||
-        wasi_msg.message.extendedTextMessage?.text ||
-        wasi_msg.message.imageMessage?.caption ||
-        wasi_msg.message.videoMessage?.caption ||
-        wasi_msg.message.documentMessage?.caption || "";
+        // SOURCE JID CHECK
+        const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(cleanJid);
+        if (!sourceList.includes(cleanFrom)) return;
 
-    // COMMAND HANDLER
-    if (wasi_text.startsWith('!')) {
-        await processCommand(wasi_sock, wasi_msg);
-    }
+        // TARGET JIDS LIST
+        const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
+        if (targetList.length === 0) return;
 
-    // AUTO FORWARD LOGIC
-    if (cleanedSources.includes(wasi_origin) && !wasi_msg.key.fromMe) {
+        // HEROKU FORWARD_TYPES FILTER
+        const msgContent = wasi_msg.message;
+        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,text,document,sticker')
+            .toLowerCase()
+            .split(',')
+            .map(t => t.trim());
 
+        const isVideo = !!(msgContent.videoMessage);
+        const isImage = !!(msgContent.imageMessage);
+        const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
+        const isDocument = !!(msgContent.documentMessage);
+        const isSticker = !!(msgContent.stickerMessage);
 
+        let shouldForward = false;
+        if (isVideo && allowedTypes.includes('video')) shouldForward = true;
+        if (isImage && allowedTypes.includes('image')) shouldForward = true;
+        if (isText && allowedTypes.includes('text')) shouldForward = true;
+        if (isDocument && allowedTypes.includes('document')) shouldForward = true;
+        if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
+
+        if (!shouldForward) return;
+
+        // Forward Message to All Targets
+        for (const targetJid of targetList) {
             try {
-                let relayMsg = processAndCleanMessage(wasi_msg.message);
-                
-                if (!relayMsg) return;
-
-                if (relayMsg.viewOnceMessageV2)
-                    relayMsg = relayMsg.viewOnceMessageV2.message;
-                if (relayMsg.viewOnceMessage)
-                    relayMsg = relayMsg.viewOnceMessage.message;
-
-                const isMedia = relayMsg.imageMessage ||
-                    relayMsg.videoMessage ||
-                    relayMsg.audioMessage ||
-                    relayMsg.documentMessage ||
-                    relayMsg.stickerMessage;
-
-                let isEmojiOnly = false;
-                if (relayMsg.conversation) {
-                    const emojiRegex = /^(?:\p{Extended_Pictographic}|\s)+$/u;
-                    isEmojiOnly = emojiRegex.test(relayMsg.conversation);
-                }
-
-                if (!isMedia && !isEmojiOnly) return;
-
-                if (relayMsg.imageMessage?.caption) {
-                    relayMsg.imageMessage.caption = replaceCaption(relayMsg.imageMessage.caption);
-                }
-                if (relayMsg.videoMessage?.caption) {
-                    relayMsg.videoMessage.caption = replaceCaption(relayMsg.videoMessage.caption);
-                }
-                if (relayMsg.documentMessage?.caption) {
-                    relayMsg.documentMessage.caption = replaceCaption(relayMsg.documentMessage.caption);
-                }
-
-                console.log(`📦 Forwarding (cleaned) from ${wasi_origin}`);
-
-                                        // Only Videos/Video Albums have 8s delay, Photos & Documents have 0s delay (Instant)
-        const isVideo = relayMsg.videoMessage || relayMsg.videoMessage?.caption;
-        const delayTime = isVideo ? 8000 : 0;
-
-        for (const targetJid of TARGET_JIDS) {
-            let success = false;
-            
-            // 3 times retry mechanism
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    await wasi_sock.relayMessage(
-                        targetJid,
-                        relayMsg,
-                        { messageId: wasi_sock.generateMessageTag() }
-                    );
-                    console.log(`✅ Clean message forwarded to ${targetJid}`);
-                    success = true;
-                    break;
-                } catch (err) {
-                    console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                    if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
-                }
-            }
-
-            // Delay only for videos
-            if (delayTime > 0) {
-                await new Promise(res => setTimeout(res, delayTime));
-            }
-        }
-
-
-
-
+                await wasi_sock.forwardMessage(targetJid, wasi_msg, { forceForward: true });
+                console.log(`✅ Forwarded post from ${cleanFrom} to ${targetJid}`);
             } catch (err) {
-                console.error('Auto Forward Error:', err.message);
+                console.error(`❌ Failed forwarding to ${targetJid}:`, err.message);
             }
         }
-    });
-}
+    } catch (e) {
+        console.error('❌ Forwarding error:', e.message);
+    }
+});
+
 
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
