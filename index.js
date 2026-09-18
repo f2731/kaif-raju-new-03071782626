@@ -440,7 +440,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const msgText = (wasi_msg.message.conversation || 
                          wasi_msg.message.extendedTextMessage?.text || '').trim();
 
-        // COMMAND: !settype
+        // COMMAND: !settype (works anywhere, from self or groups)
         if (msgText.startsWith('!settype')) {
             const args = msgText.replace('!settype', '').trim();
             if (!args) {
@@ -464,7 +464,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             return;
         }
 
-        // SOURCE JID CHECK
+        // SOURCE JID CHECK FOR FORWARDING
         const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(cleanJid);
         if (!sourceList.includes(cleanFrom)) return;
 
@@ -502,6 +502,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         console.error('❌ Forwarding error:', e.message);
     }
 });
+
 
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
