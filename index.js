@@ -448,7 +448,12 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
             return;
         }
-
+        // 3. GJID COMMAND
+        if (msgText.toLowerCase() === '!gjid') {
+            await wasi_sock.sendMessage(rawFrom, { text: `🏷️ Group JID: ${rawFrom}` }, { quoted: wasi_msg });
+            return;
+        }
+        
         // FORWARDING LOGIC
         const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(id => cleanJid(id));
         if (!sourceList.some(src => cleanFrom.includes(src))) return;
