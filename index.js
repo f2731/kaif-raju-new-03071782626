@@ -440,7 +440,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const msgText = (wasi_msg.message.conversation || 
                          wasi_msg.message.extendedTextMessage?.text || '').trim();
 
-        // COMMAND: !settype (e.g. !settype video,document OR !settype all)
+        // COMMAND: !settype
         if (msgText.startsWith('!settype')) {
             const args = msgText.replace('!settype', '').trim();
             if (!args) {
@@ -458,7 +458,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             return;
         }
 
-        // COMMAND: !gettype (Check Current Forwarding Types)
+        // COMMAND: !gettype
         if (msgText === '!gettype') {
             await wasi_sock.sendMessage(rawFrom, { text: `📊 موجودہ فارورڈنگ ٹائپس:\n📌 *${global.allowedForwardTypes.join(', ')}*` }, { quoted: wasi_msg });
             return;
@@ -487,7 +487,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isDocument && global.allowedForwardTypes.includes('document')) shouldForward = true;
         if (isSticker && global.allowedForwardTypes.includes('sticker')) shouldForward = true;
 
-        if (!shouldForward) return; // Skip if type not allowed
+        if (!shouldForward) return;
 
         // Forward Message
         for (const targetJid of targetList) {
