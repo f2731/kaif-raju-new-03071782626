@@ -303,7 +303,8 @@ async function handleGjidCommand(sock, from) {
 }
 async function handleForwardCommand(sock, msg, from) {
     try {
-        const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+        const quotedMessage = contextInfo?.quotedMessage;
 
         if (!quotedMessage) {
             await sock.sendMessage(from, { text: '❌ برائے مہربانی کسی میسج کو Reply کر کے !forward لکھیں۔' });
@@ -312,17 +313,23 @@ async function handleForwardCommand(sock, msg, from) {
 
         const quotedKey = {
             remoteJid: from,
-            id: msg.message.extendedTextMessage.contextInfo.stanzaId,
-            participant: msg.message.extendedTextMessage.contextInfo.participant
+            id: contextInfo.stanzaId,
+            participant: contextInfo.participant || from
         };
 
-        await sock.sendMessage(from, { forward: { key: quotedKey, message: quotedMessage } });
+        await sock.sendMessage(from, { 
+            forward: { 
+                key: quotedKey, 
+                message: quotedMessage 
+            } 
+        });
 
     } catch (error) {
         console.error('Forward Command Error:', error);
         await sock.sendMessage(from, { text: '❌ میسج فارورڈ کرنے میں مسئلہ آیا۔' });
     }
 }
+
 
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
