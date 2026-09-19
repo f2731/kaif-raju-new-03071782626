@@ -380,10 +380,7 @@ async function processCommand(sock, msg) {
                     console.error('TagAll Error:', err);
                     await sock.sendMessage(from, { text: '❌ !tagall کمانڈ چلانے میں مسئلہ آیا۔ یقینی بنائیں کہ بوٹ گروپ ایڈمن ہے۔' });
                 }
-            }
-
-
-            
+              
     } catch (error) {
         console.error('Command execution error:', error);
     }
