@@ -344,43 +344,7 @@ async function processCommand(sock, msg) {
             else if (lowerCommand === '!forward') {
                 await handleForwardCommand(sock, msg, from);
             }
-                        else if (lowerCommand.startsWith('!movie')) {
-            else if (lowerCommand === '!tagall' || lowerCommand.startsWith('!tagall ')) {
-                try {
-                    if (!from.endsWith('@g.us')) {
-                        await sock.sendMessage(from, { text: '⚠️ یہ کمانڈ صرف واٹس ایپ گروپس میں کام کرتی ہے!' });
-                        return;
-                    }
 
-                    const messageText = command.replace(/!tagall/i, '').trim();
-                    const announcement = messageText ? messageText : 'سب ممبران توجہ فرمائیں!';
-
-                    const groupMetadata = await sock.groupMetadata(from);
-                    const participants = groupMetadata.participants;
-
-                    if (!participants || participants.length === 0) {
-                        await sock.sendMessage(from, { text: '❌ گروپ ممبران کی معلومات حاصل نہیں ہو سکیں۔' });
-                        return;
-                    }
-
-                    let tagMentions = [];
-                    let tagMessage = `📢 *گروپ اناؤنسمنٹ*\n\n📝 *پیغام:* ${announcement}\n\n👥 *تمام ممبران:*\n`;
-
-                    for (let mem of participants) {
-                        tagMessage += `@${mem.id.split('@')[0]}\n`;
-                        tagMentions.push(mem.id);
-                    }
-
-                    await sock.sendMessage(from, {
-                        text: tagMessage,
-                        mentions: tagMentions
-                    });
-
-                } catch (err) {
-                    console.error('TagAll Error:', err);
-                    await sock.sendMessage(from, { text: '❌ !tagall کمانڈ چلانے میں مسئلہ آیا۔ یقینی بنائیں کہ بوٹ گروپ ایڈمن ہے۔' });
-                }
-              
     } catch (error) {
         console.error('Command execution error:', error);
     }
