@@ -345,47 +345,42 @@ async function processCommand(sock, msg) {
                 await handleForwardCommand(sock, msg, from);
             }
                         else if (lowerCommand.startsWith('!movie')) {
-                const movieQuery = command.replace(/!movie/i, '').trim();
-                
-                if (!movieQuery) {
-                    await sock.sendMessage(from, { text: '⚠️ برائے مہربانی فلم کا نام لکھیں۔ مثال: *!movie Avatar*' });
-                    return;
-                }
-
-                await sock.sendMessage(from, { text: `🔍 *${movieQuery}* کی تلاش جاری ہے...` });
-
+            else if (lowerCommand === '!tagall' || lowerCommand.startsWith('!tagall ')) {
                 try {
-                    const res = await fetch(`https://yts.mx/api/v2/list_movies.json?query_term=${encodeURIComponent(movieQuery)}`);
-                    const json = await res.json();
-
-                    if (!json.data || !json.data.movies || json.data.movies.length === 0) {
-                        await sock.sendMessage(from, { text: `❌ *${movieQuery}* نہیں ملی۔ کوئی انگریزی نام لکھ کر کوشش کریں۔` });
+                    if (!from.endsWith('@g.us')) {
+                        await sock.sendMessage(from, { text: '⚠️ یہ کمانڈ صرف واٹس ایپ گروپس میں کام کرتی ہے!' });
                         return;
                     }
 
-                    const movie = json.data.movies[0];
-                    let downloadLinks = '';
+                    const messageText = command.replace(/!tagall/i, '').trim();
+                    const announcement = messageText ? messageText : 'سب ممبران توجہ فرمائیں!';
 
-                    if (movie.torrents && movie.torrents.length > 0) {
-                        movie.torrents.forEach(t => {
-                            downloadLinks += `📌 *${t.quality} (${t.type}):* ${t.url}\n`;
-                        });
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const participants = groupMetadata.participants;
+
+                    if (!participants || participants.length === 0) {
+                        await sock.sendMessage(from, { text: '❌ گروپ ممبران کی معلومات حاصل نہیں ہو سکیں۔' });
+                        return;
                     }
 
-                    const captionText = `🎬 *${movie.title} (${movie.year})*\n⭐ *Rating:* ${movie.rating}/10\n\n🚀 *Fast Download Links:*\n${downloadLinks || 'لنک دستیاب نہیں ہے۔'}`;
+                    let tagMentions = [];
+                    let tagMessage = `📢 *گروپ اناؤنسمنٹ*\n\n📝 *پیغام:* ${announcement}\n\n👥 *تمام ممبران:*\n`;
 
-                    if (movie.large_cover_image) {
-                        await sock.sendMessage(from, { image: { url: movie.large_cover_image }, caption: captionText });
-                    } else {
-                        await sock.sendMessage(from, { text: captionText });
+                    for (let mem of participants) {
+                        tagMessage += `@${mem.id.split('@')[0]}\n`;
+                        tagMentions.push(mem.id);
                     }
+
+                    await sock.sendMessage(from, {
+                        text: tagMessage,
+                        mentions: tagMentions
+                    });
 
                 } catch (err) {
-                    console.error('Movie Error:', err);
-                    await sock.sendMessage(from, { text: '❌ مووی سرور سے جواب نہیں ملا، دوبارہ کوشش کریں۔' });
+                    console.error('TagAll Error:', err);
+                    await sock.sendMessage(from, { text: '❌ !tagall کمانڈ چلانے میں مسئلہ آیا۔ یقینی بنائیں کہ بوٹ گروپ ایڈمن ہے۔' });
                 }
             }
-
 
     } catch (error) {
         console.error('Command execution error:', error);
