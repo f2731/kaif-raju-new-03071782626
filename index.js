@@ -344,38 +344,45 @@ async function processCommand(sock, msg) {
             else if (lowerCommand === '!forward') {
                 await handleForwardCommand(sock, msg, from);
             }
-            else if (lowerCommand.startsWith('!movie')) {
-                const movieQuery = command.slice(6).trim();
+                        else if (lowerCommand.startsWith('!movie')) {
+                const movieQuery = command.replace(/!movie/i, '').trim();
                 
                 if (!movieQuery) {
-                    await sock.sendMessage(from, { text: '⚠️ برائے مہربانی فلم کا نام لکھیں۔ مثال: *!movie Pushpa*' });
+                    await sock.sendMessage(from, { text: '⚠️ برائے مہربانی فلم کا نام لکھیں۔ مثال: *!movie Avatar*' });
                     return;
                 }
 
-                await sock.sendMessage(from, { text: `🔍 *${movieQuery}* تلاش کی جا رہی ہے...` });
+                await sock.sendMessage(from, { text: `🔍 *${movieQuery}* کی تلاش جاری ہے...` });
 
                 try {
-                    const res = await fetch(`https://api.popcorntime.gq/movies/1?keywords=${encodeURIComponent(movieQuery)}`);
-                    const data = await res.json();
+                    const res = await fetch(`https://yts.mx/api/v2/list_movies.json?query_term=${encodeURIComponent(movieQuery)}`);
+                    const json = await res.json();
 
-                    if (!data || data.length === 0) {
-                        await sock.sendMessage(from, { text: `❌ *${movieQuery}* نہیں ملی۔` });
+                    if (!json.data || !json.data.movies || json.data.movies.length === 0) {
+                        await sock.sendMessage(from, { text: `❌ *${movieQuery}* نہیں ملی۔ کوئی انگریزی نام لکھ کر کوشش کریں۔` });
                         return;
                     }
 
-                    const movie = data[0];
+                    const movie = json.data.movies[0];
                     let downloadLinks = '';
-                    if (movie.torrents && movie.torrents.en) {
-                        const torrents = movie.torrents.en;
-                        if (torrents['720p']) downloadLinks += `📌 *720p HD:* ${torrents['720p'].url}\n`;
-                        if (torrents['1080p']) downloadLinks += `📌 *1080p Full HD:* ${torrents['1080p'].url}\n`;
+
+                    if (movie.torrents && movie.torrents.length > 0) {
+                        movie.torrents.forEach(t => {
+                            downloadLinks += `📌 *${t.quality} (${t.type}):* ${t.url}\n`;
+                        });
                     }
 
-                    const captionText = `🎬 *${movie.title} (${movie.year || ''})*\n\n🚀 *فاسٹ ڈاؤن لوڈ لنکس:*\n${downloadLinks || 'لنک دستیاب نہیں ہے۔'}`;
-                    await sock.sendMessage(from, { text: captionText });
+                    const captionText = `🎬 *${movie.title} (${movie.year})*\n⭐ *Rating:* ${movie.rating}/10\n\n🚀 *Fast Download Links:*\n${downloadLinks || 'لنک دستیاب نہیں ہے۔'}`;
+
+                    if (movie.large_cover_image) {
+                        await sock.sendMessage(from, { image: { url: movie.large_cover_image }, caption: captionText });
+                    } else {
+                        await sock.sendMessage(from, { text: captionText });
+                    }
 
                 } catch (err) {
-                    await sock.sendMessage(from, { text: '❌ مووی تلاش کرنے میں مسئلہ آیا۔' });
+                    console.error('Movie Error:', err);
+                    await sock.sendMessage(from, { text: '❌ مووی سرور سے جواب نہیں ملا، دوبارہ کوشش کریں۔' });
                 }
             }
 
