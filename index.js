@@ -382,6 +382,8 @@ async function processCommand(sock, msg) {
                 }
             }
 
+
+            
     } catch (error) {
         console.error('Command execution error:', error);
     }
