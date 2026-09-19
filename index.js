@@ -301,22 +301,6 @@ async function handleGjidCommand(sock, from) {
         });
     }
 }
-async function handleForwardCommand(sock, msg, from) {
-    try {
-        const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        
-        if (!quotedMessage) {
-            await sock.sendMessage(from, { text: "❌ براہ کرم کسی بھی میسج کا **Reply** دے کر `!forward` لکھیں۔" });
-            return;
-        }
-
-        await sock.sendMessage(from, { forward: { key: { remoteJid: from }, message: quotedMessage } });
-        
-    } catch (error) {
-        console.error('Forward Command Error:', error);
-        await sock.sendMessage(from, { text: "❌ میسج فارورڈ کرنے میں مسئلہ آیا ہے۔" });
-    }
-}
 
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
@@ -341,9 +325,6 @@ async function processCommand(sock, msg) {
             else if (lowerCommand === '!gjid') {
                 await handleGjidCommand(sock, from);
             }
-                    else if (command === '!forward') {
-                await handleForwardCommand(sock, msg, from);
-                    }
 
     } catch (error) {
         console.error('Command execution error:', error);
@@ -499,26 +480,43 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isDocument && allowedTypes.includes('document')) shouldForward = true;
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
-        if (shouldForward) {
-        for (const targetJid of targetList) {
-            let success = false;
+            if (shouldForward) {
+                for (const targetJid of targetList) {
+                    let success = false;
 
-            // 3 times retry mechanism
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    await wasi_sock.relayMessage(
-                        targetJid,
-                        wasi_msg.message,
-                        { messageId: wasi_sock.generateMessageTag() }
-                    );
-                    console.log(`✅ Clean message forwarded to ${targetJid}`);
-                    success = true;
-                    break;
-                } catch (err) {
-                    console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                    if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
+                    // 3 times retry mechanism
+                    for (let attempt = 1; attempt <= 3; attempt++) {
+                        try {
+                            // Forwarded tag hatane ke liye message clean karna
+                            let msgToSend = JSON.parse(JSON.stringify(wasi_msg.message));
+                            const messageType = Object.keys(msgToSend)[0];
+
+                            if (msgToSend[messageType]) {
+                                if (msgToSend[messageType].contextInfo) {
+                                    delete msgToSend[messageType].contextInfo.forwardingScore;
+                                    delete msgToSend[messageType].contextInfo.isForwarded;
+                                }
+                            }
+
+                            // Direct message send karna bina Forwarded tag ke
+                            await wasi_sock.sendMessage(targetJid, {
+                                forward: {
+                                    key: wasi_msg.key,
+                                    message: msgToSend
+                                }
+                            });
+
+                            console.log(`✅ Clean message forwarded to ${targetJid}`);
+                            success = true;
+                            break;
+                        } catch (err) {
+                            console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
+                            if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
+                        }
+                    }
                 }
             }
+
 
             // Delay only for videos
 if (isVideo) {
