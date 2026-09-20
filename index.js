@@ -361,19 +361,32 @@ async function handleGjidCommand(sock, from) {
 async function handleForwardCommand(sock, msg, from) {
     try {
         const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        
+
         if (!quotedMessage) {
-            await sock.sendMessage(from, { text: "❌ براہ کرم کسی بھی میسج کا **Reply** دے کر `!forward` لکھیں۔" });
+            await sock.sendMessage(from, { text: "❌ **Reply** کر کے !forward لکھیں کسی بھی میسج کا۔" });
             return;
         }
 
-        await sock.sendMessage(from, { forward: { key: { remoteJid: from }, message: quotedMessage } });
-        
+        // Forward Tag ہٹانے کے لیے میسج ابجیکٹ کی کلوننگ
+        const cleanMessage = JSON.parse(JSON.stringify(quotedMessage));
+
+        // تمام contextInfo سے فارورڈنگ کا نشان ختم کرنا
+        for (const type of Object.keys(cleanMessage)) {
+            if (cleanMessage[type]?.contextInfo) {
+                delete cleanMessage[type].contextInfo.isForwarded;
+                delete cleanMessage[type].contextInfo.forwardingScore;
+            }
+        }
+
+        // اوریجنل پوسٹ کے طور پر بھیجنا
+        await sock.sendMessage(from, cleanMessage);
+
     } catch (error) {
         console.error('Forward Command Error:', error);
         await sock.sendMessage(from, { text: "❌ میسج فارورڈ کرنے میں مسئلہ آیا ہے۔" });
     }
 }
+
 
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
