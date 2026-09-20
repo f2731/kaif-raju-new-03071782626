@@ -487,7 +487,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                     // 3 times retry mechanism
                     for (let attempt = 1; attempt <= 3; attempt++) {
                         try {
-                                            // Forwarded tag hatane ke liye message clean karna
+                // Forwarded tag hatane ke liye message clean karna
                 let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
 
                 for (const type of Object.keys(cleanMessage)) {
