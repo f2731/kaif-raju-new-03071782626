@@ -379,7 +379,7 @@ async function handleForwardCommand(sock, msg, from) {
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
 
-    // 1. Sab se pehle Group Moderation chalayein (taaki bina '!' wale link/text pakde jayein)
+    // 1. سب سے پہلے گروپ ماڈریشن چلائیں
     try {
         await handleGroupModeration(sock, msg);
     } catch (modErr) {
@@ -392,10 +392,30 @@ async function processCommand(sock, msg) {
                  msg.message?.videoMessage?.caption ||
                  "";
 
-    // Agar text khali hai ya '!' se shuru nahi hota toh command stop kar dein
     if (!text || !text.startsWith('!')) return;
 
     const command = text.trim().toLowerCase();
+    const sender = msg.key.participant || msg.key.participantAlt || msg.key.remoteJid;
+
+    // 2. اپنا واٹس ایپ نمبر یہاں لکھیں
+    const OWNER_NUMBER = '923071782626@s.whatsapp.net'; 
+
+    // آنر اور ایڈمن چیک
+    let isOwnerOrAdmin = false;
+
+    if (sender === OWNER_NUMBER || msg.key.fromMe) {
+        isOwnerOrAdmin = true;
+    } else if (from.endsWith('@g.us')) {
+        try {
+            const groupMetadata = await sock.groupMetadata(from);
+            const groupAdmins = groupMetadata.participants
+                .filter(p => p.admin !== null)
+                .map(p => p.id);
+            isOwnerOrAdmin = groupAdmins.includes(sender);
+        } catch (e) {
+            console.error('Error fetching admins:', e);
+        }
+    }
 
     try {
         if (command === '!ping') {
@@ -405,9 +425,17 @@ async function processCommand(sock, msg) {
         } else if (command === '!gjid') {
             await handleGjidCommand(sock, from);
         } else if (command === '!antilink on') {
+            if (!isOwnerOrAdmin) {
+                await sock.sendMessage(from, { text: '❌ صرف بوٹ کا مالک یا گروپ ایڈمن یہ کمانڈ چلا سکتا ہے۔' });
+                return;
+            }
             isAntiLinkEnabled = true;
             await sock.sendMessage(from, { text: '✅ Anti-Link اور Moderation سسٹم ON کر دیا گیا ہے۔' });
         } else if (command === '!antilink off') {
+            if (!isOwnerOrAdmin) {
+                await sock.sendMessage(from, { text: '❌ صرف بوٹ کا مالک یا گروپ ایڈمن یہ کمانڈ چلا سکتا ہے۔' });
+                return;
+            }
             isAntiLinkEnabled = false;
             await sock.sendMessage(from, { text: '❌ Anti-Link اور Moderation سسٹم OFF کر دیا گیا ہے۔' });
         }
@@ -415,6 +443,7 @@ async function processCommand(sock, msg) {
         console.error('Command execution error:', error);
     }
 }
+
 
 
 // -----------------------------------------------------------------------------
