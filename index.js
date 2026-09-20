@@ -34,7 +34,6 @@ const QRCode = require('qrcode');
 // SESSION STATE
 // -----------------------------------------------------------------------------
 const sessions = new Map();
-let isAntiLinkEnabled = false;
 
 // Middleware
 wasi_app.use(express.json());
@@ -80,63 +79,6 @@ const NEW_TEXT = process.env.NEW_TEXT
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS FOR MESSAGE CLEANING
 // -----------------------------------------------------------------------------
-// ANTI-LINK & ANTI-TEXT AUTO-MODERATION LOGIC
-async function handleGroupModeration(sock, msg) {
-    try {
-        // Agar Anti-link feature off ho toh aage na jayein
-        if (!isAntiLinkEnabled) return;
-
-        const from = msg.key.remoteJid;
-        // Sirf Group chats ke liye (Personal chat ko skip karein taaki crash na ho)
-        if (!from || !from.endsWith('@g.us')) return;
-        if (msg.key.fromMe) return;
-
-        const sender = msg.key.participant || msg.key.participantAlt || msg.key.remoteJid;
-        if (!sender) return;
-
-        // Group metadata aur Admins check karein
-        const groupMetadata = await sock.groupMetadata(from);
-        const groupAdmins = groupMetadata.participants
-            .filter(p => p.admin !== null)
-            .map(p => p.id);
-
-        // Agar msg bhejne wala Admin hai toh ignore karein
-        if (groupAdmins.includes(sender)) return;
-
-        // Photo ya Video message ko skip karein (Delete na karein)
-        if (msg.message?.imageMessage || msg.message?.videoMessage) return;
-
-        const body = msg.message?.conversation ||
-                     msg.message?.extendedTextMessage?.text ||
-                     msg.message?.imageMessage?.caption ||
-                     msg.message?.videoMessage?.caption || "";
-
-        const linkRegex = /(https?:\/\/[^\s]+)|(chat\.whatsapp\.com\/[^\s]+)|(wa\.me\/[^\s]+)/gi;
-        const containsLink = linkRegex.test(body);
-
-        // 1. Link hone par delete aur remove
-        if (containsLink) {
-            await sock.sendMessage(from, { delete: msg.key });
-            await sock.sendMessage(from, {
-                text: `⚠️ @${sender.split('@')[0]} گروپ میں لنک بھیجنا منع ہے! آپ کو نکالا جا رہا ہے۔`,
-                mentions: [sender]
-            });
-            await sock.groupParticipantsUpdate(from, [sender], 'remove');
-            return;
-        }
-
-        // 2. Simple Text message hone par delete aur remove
-        if (body.trim().length > 0) {
-            await sock.sendMessage(from, { delete: msg.key });
-            await sock.groupParticipantsUpdate(from, [sender], 'remove');
-            return;
-        }
-
-    } catch (error) {
-        console.error('Moderation Error:', error);
-    }
-}
-
 
 /**
  * Clean forwarded label from message
@@ -384,12 +326,11 @@ async function processCommand(sock, msg) {
         msg.message.videoMessage?.caption ||
         "";
     
+    if (!text || !text.startsWith('!')) return;
+    
     const command = text.trim().toLowerCase();
     
     try {
-                await handleGroupModeration(sock, msg);
-                if (!text || !text.startsWith('!')) return;
-        
         if (command === '!ping') {
             await handlePingCommand(sock, from);
         } 
@@ -399,15 +340,9 @@ async function processCommand(sock, msg) {
                 else if (command === '!gjid') {
             await handleGjidCommand(sock, from);
         }
-                                else if (command === '!antilink on') {
-                isAntiLinkEnabled = true;
-                await sock.sendMessage(from, { text: '✅ Anti-Link اور Moderation سسٹم **ON** کر دیا گیا ہے۔' });
-            }
-            else if (command === '!antilink off') {
-                isAntiLinkEnabled = false;
-                await sock.sendMessage(from, { text: '❌ Anti-Link اور Moderation سسٹم **OFF** کر دیا گیا ہے۔' });
-            }
-
+                    else if (command === '!forward') {
+                await handleForwardCommand(sock, msg, from);
+                    }
         
     } catch (error) {
         console.error('Command execution error:', error);
