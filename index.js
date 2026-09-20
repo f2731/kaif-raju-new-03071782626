@@ -378,41 +378,44 @@ async function handleForwardCommand(sock, msg, from) {
 
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
-    const text = msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        msg.message.imageMessage?.caption ||
-        msg.message.videoMessage?.caption ||
-        "";
-    
-    const command = text.trim().toLowerCase();
-    
+
+    // 1. Sab se pehle Group Moderation chalayein (taaki bina '!' wale link/text pakde jayein)
     try {
-                await handleGroupModeration(sock, msg);
-                if (!text || !text.startsWith('!')) return;
-        
+        await handleGroupModeration(sock, msg);
+    } catch (modErr) {
+        console.error('Moderation Error:', modErr);
+    }
+
+    const text = msg.message?.conversation ||
+                 msg.message?.extendedTextMessage?.text ||
+                 msg.message?.imageMessage?.caption ||
+                 msg.message?.videoMessage?.caption ||
+                 "";
+
+    // Agar text khali hai ya '!' se shuru nahi hota toh command stop kar dein
+    if (!text || !text.startsWith('!')) return;
+
+    const command = text.trim().toLowerCase();
+
+    try {
         if (command === '!ping') {
             await handlePingCommand(sock, from);
-        } 
-        else if (command === '!jid') {
+        } else if (command === '!jid') {
             await handleJidCommand(sock, from);
-        }
-                else if (command === '!gjid') {
+        } else if (command === '!gjid') {
             await handleGjidCommand(sock, from);
+        } else if (command === '!antilink on') {
+            isAntiLinkEnabled = true;
+            await sock.sendMessage(from, { text: '✅ Anti-Link اور Moderation سسٹم ON کر دیا گیا ہے۔' });
+        } else if (command === '!antilink off') {
+            isAntiLinkEnabled = false;
+            await sock.sendMessage(from, { text: '❌ Anti-Link اور Moderation سسٹم OFF کر دیا گیا ہے۔' });
         }
-                                else if (command === '!antilink on') {
-                isAntiLinkEnabled = true;
-                await sock.sendMessage(from, { text: '✅ Anti-Link اور Moderation سسٹم **ON** کر دیا گیا ہے۔' });
-            }
-            else if (command === '!antilink off') {
-                isAntiLinkEnabled = false;
-                await sock.sendMessage(from, { text: '❌ Anti-Link اور Moderation سسٹم **OFF** کر دیا گیا ہے۔' });
-            }
-
-        
     } catch (error) {
         console.error('Command execution error:', error);
     }
 }
+
 
 // -----------------------------------------------------------------------------
 // SESSION MANAGEMENT
