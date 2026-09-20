@@ -79,63 +79,6 @@ const NEW_TEXT = process.env.NEW_TEXT
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS FOR MESSAGE CLEANING
 // -----------------------------------------------------------------------------
-// ANTI-LINK & ANTI-TEXT AUTO-MODERATION LOGIC
-async function handleGroupModeration(sock, msg) {
-    try {
-        // Agar Anti-link feature off ho toh aage na jayein
-        if (!isAntiLinkEnabled) return;
-
-        const from = msg.key.remoteJid;
-        // Sirf Group chats ke liye (Personal chat ko skip karein taaki crash na ho)
-        if (!from || !from.endsWith('@g.us')) return;
-        if (msg.key.fromMe) return;
-
-        const sender = msg.key.participant || msg.key.participantAlt || msg.key.remoteJid;
-        if (!sender) return;
-
-        // Group metadata aur Admins check karein
-        const groupMetadata = await sock.groupMetadata(from);
-        const groupAdmins = groupMetadata.participants
-            .filter(p => p.admin !== null)
-            .map(p => p.id);
-
-        // Agar msg bhejne wala Admin hai toh ignore karein
-        if (groupAdmins.includes(sender)) return;
-
-        // Photo ya Video message ko skip karein (Delete na karein)
-        if (msg.message?.imageMessage || msg.message?.videoMessage) return;
-
-        const body = msg.message?.conversation ||
-                     msg.message?.extendedTextMessage?.text ||
-                     msg.message?.imageMessage?.caption ||
-                     msg.message?.videoMessage?.caption || "";
-
-        const linkRegex = /(https?:\/\/[^\s]+)|(chat\.whatsapp\.com\/[^\s]+)|(wa\.me\/[^\s]+)/gi;
-        const containsLink = linkRegex.test(body);
-
-        // 1. Link hone par delete aur remove
-        if (containsLink) {
-            await sock.sendMessage(from, { delete: msg.key });
-            await sock.sendMessage(from, {
-                text: `⚠️ @${sender.split('@')[0]} گروپ میں لنک بھیجنا منع ہے! آپ کو نکالا جا رہا ہے۔`,
-                mentions: [sender]
-            });
-            await sock.groupParticipantsUpdate(from, [sender], 'remove');
-            return;
-        }
-
-        // 2. Simple Text message hone par delete aur remove
-        if (body.trim().length > 0) {
-            await sock.sendMessage(from, { delete: msg.key });
-            await sock.groupParticipantsUpdate(from, [sender], 'remove');
-            return;
-        }
-
-    } catch (error) {
-        console.error('Moderation Error:', error);
-    }
-}
-
 
 /**
  * Clean forwarded label from message
@@ -358,65 +301,35 @@ async function handleGjidCommand(sock, from) {
         });
     }
 }
-async function handleForwardCommand(sock, msg, from) {
-    try {
-        const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
-        if (!quotedMessage) {
-            await sock.sendMessage(from, { text: "❌ **Reply** کر کے !forward لکھیں کسی بھی میسج کا۔" });
-            return;
-        }
-
-        // Forward Tag ہٹانے کے لیے میسج ابجیکٹ کی کلوننگ
-        const cleanMessage = JSON.parse(JSON.stringify(quotedMessage));
-
-        // تمام contextInfo سے فارورڈنگ کا نشان ختم کرنا
-        for (const type of Object.keys(cleanMessage)) {
-            if (cleanMessage[type]?.contextInfo) {
-                delete cleanMessage[type].contextInfo.isForwarded;
-                delete cleanMessage[type].contextInfo.forwardingScore;
-            }
-        }
-
-        // اوریجنل پوسٹ کے طور پر بھیجنا
-        await sock.sendMessage(from, cleanMessage);
-
-    } catch (error) {
-        console.error('Forward Command Error:', error);
-        await sock.sendMessage(from, { text: "❌ میسج فارورڈ کرنے میں مسئلہ آیا ہے۔" });
-    }
-}
-
 
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
-
-    const text = msg.message?.conversation ||
-                 msg.message?.extendedTextMessage?.text ||
-                 msg.message?.imageMessage?.caption ||
-                 msg.message?.videoMessage?.caption ||
-                 "";
-
+    const text = msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        msg.message.imageMessage?.caption ||
+        msg.message.videoMessage?.caption ||
+        "";
+    
     if (!text || !text.startsWith('!')) return;
+    
+            const command = text.trim();
+        const lowerCommand = command.toLowerCase();
 
-    const command = text.trim().toLowerCase();
+        try {
+            if (lowerCommand === '!ping') {
+                await handlePingCommand(sock, from);
+            }
+            else if (lowerCommand === '!jid') {
+                await handleJidCommand(sock, from);
+            }
+            else if (lowerCommand === '!gjid') {
+                await handleGjidCommand(sock, from);
+            }
 
-    try {
-        if (command === '!ping') {
-            await handlePingCommand(sock, from);
-        } else if (command === '!jid') {
-            await handleJidCommand(sock, from);
-        } else if (command === '!gjid') {
-            await handleGjidCommand(sock, from);
-        }
     } catch (error) {
         console.error('Command execution error:', error);
     }
 }
-
-
-
-
 
 // -----------------------------------------------------------------------------
 // SESSION MANAGEMENT
@@ -567,26 +480,38 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isDocument && allowedTypes.includes('document')) shouldForward = true;
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
-        if (shouldForward) {
-        for (const targetJid of targetList) {
-            let success = false;
+            if (shouldForward) {
+                for (const targetJid of targetList) {
+                    let success = false;
 
-            // 3 times retry mechanism
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    await wasi_sock.relayMessage(
-                        targetJid,
-                        wasi_msg.message,
-                        { messageId: wasi_sock.generateMessageTag() }
-                    );
-                    console.log(`✅ Clean message forwarded to ${targetJid}`);
-                    success = true;
-                    break;
-                } catch (err) {
-                    console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                    if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
+                    // 3 times retry mechanism
+                    for (let attempt = 1; attempt <= 3; attempt++) {
+                        try {
+                                            // Forwarded tag hatane ke liye message clean karna
+                let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
+
+                for (const type of Object.keys(cleanMessage)) {
+                    if (cleanMessage[type]?.contextInfo) {
+                        delete cleanMessage[type].contextInfo.forwardingScore;
+                        delete cleanMessage[type].contextInfo.isForwarded;
+                    }
+                }
+
+                // Direct clean message send karna (bina forward parameter ke)
+                await wasi_sock.sendMessage(targetJid, cleanMessage);
+
+
+                            console.log(`✅ Clean message forwarded to ${targetJid}`);
+                            success = true;
+                            break;
+                        } catch (err) {
+                            console.error(`⚠️ Attempt ${attempt} failed for ${targetJid}:`, err.message);
+                            if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
+                        }
+                    }
                 }
             }
+
 
             // Delay only for videos
 if (isVideo) {
