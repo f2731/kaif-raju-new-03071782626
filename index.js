@@ -34,7 +34,6 @@ const QRCode = require('qrcode');
 // SESSION STATE
 // -----------------------------------------------------------------------------
 const sessions = new Map();
-let isAntiLinkEnabled = true;
 
 // Middleware
 wasi_app.use(express.json());
@@ -379,13 +378,6 @@ async function handleForwardCommand(sock, msg, from) {
 async function processCommand(sock, msg) {
     const from = msg.key.remoteJid;
 
-    // 1. Auto Moderation: Har waqt auto-check karega
-    try {
-        await handleGroupModeration(sock, msg);
-    } catch (modErr) {
-        console.error('Moderation Error:', modErr);
-    }
-
     const text = msg.message?.conversation ||
                  msg.message?.extendedTextMessage?.text ||
                  msg.message?.imageMessage?.caption ||
@@ -408,6 +400,7 @@ async function processCommand(sock, msg) {
         console.error('Command execution error:', error);
     }
 }
+
 
 
 
