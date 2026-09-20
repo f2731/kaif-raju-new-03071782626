@@ -118,12 +118,16 @@ async function handleGroupModeration(sock, msg) {
             return;
         }
 
-        // 2. Text message hone par delete aur remove
+                // Photo ya Video message ko skip karein (Delete na karein)
+        if (msg.message?.imageMessage || msg.message?.videoMessage) return;
+
+        // 2. Sirf Simple Text message hone par delete aur remove
         if (body.trim().length > 0) {
             await sock.sendMessage(from, { delete: msg.key });
             await sock.groupParticipantsUpdate(from, [sender], 'remove');
             return;
         }
+
 
     } catch (error) {
         console.error('Moderation Error:', error);
