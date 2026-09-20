@@ -484,7 +484,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                 for (const targetJid of targetList) {
                     let success = false;
 
-                // 3 times retry mechanism
+                // 3 times retry mechanism with fallback
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
                         // Forwarded tag hatane ke liye message clean karna
@@ -497,10 +497,16 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                             }
                         }
 
-                        // Direct clean message send karna (bina forward parameter ke)
-                        await wasi_sock.sendMessage(targetJid, cleanMessage);
+                        // Pehle direct send karne ki koshish karna
+                        try {
+                            await wasi_sock.sendMessage(targetJid, cleanMessage);
+                        } catch (mediaErr) {
+                            // Agar media type ka error aaye toh relayMessage use karna
+                            const messageType = Object.keys(cleanMessage)[0];
+                            await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
+                        }
 
-                        console.log(`[+] Clean message forwarded to ${targetJid}`);
+                        console.log(`[+] Message forwarded to ${targetJid}`);
                         success = true;
                         break;
                     } catch (err) {
@@ -508,6 +514,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                         if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
                     }
                 }
+
                     
             // Delay only for videos
 if (isVideo) {
