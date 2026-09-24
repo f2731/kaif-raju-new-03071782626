@@ -461,17 +461,20 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
         if (targetList.length === 0) return;
 
-        // Directly reading FORWARD_TYPES from Heroku Env
-        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
+        // Heroku Env se allowed types read kar rahe hain (sticker bhi add kar diya hai)
+        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document,sticker,text')
             .toLowerCase()
             .split(',')
             .map(t => t.trim());
 
-        const isVideo = !!(msgContent.videoMessage);
-        const isImage = !!(msgContent.imageMessage);
+        const isVideo = !!(msgContent.videoMessage || msgContent.documentWithCaptionMessage?.message?.videoMessage);
+        const isImage = !!(msgContent.imageMessage || msgContent.documentWithCaptionMessage?.message?.imageMessage);
         const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
         const isDocument = !!(msgContent.documentMessage);
         const isSticker = !!(msgContent.stickerMessage);
+        
+        // Album ya media group detection (Agar album ya multiple items hon)
+        const isAlbum = !!(msgContent.albumMessage || msgContent.groupInviteMessage);
 
         let shouldForward = false;
         if (isVideo && allowedTypes.includes('video')) shouldForward = true;
@@ -479,23 +482,35 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isText && allowedTypes.includes('text')) shouldForward = true;
         if (isDocument && allowedTypes.includes('document')) shouldForward = true;
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
+        if (isAlbum && (allowedTypes.includes('image') || allowedTypes.includes('video'))) shouldForward = true;
 
-            if (shouldForward) {
-                for (const targetJid of targetList) {
-                    let success = false;
+        if (shouldForward) {
+            for (const targetJid of targetList) {
+                let success = false;
 
-                // 3 times retry mechanism with custom sender name
+                // 3 times retry mechanism
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
                         let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
 
+                        // Forwarding labels aur tags ko saaf karna
                         for (const type of Object.keys(cleanMessage)) {
                             if (cleanMessage[type]?.contextInfo) {
                                 delete cleanMessage[type].contextInfo.forwardingScore;
                                 delete cleanMessage[type].contextInfo.isForwarded;
                                 
-                                // Yahan aap apna naam ya custom text set kar sakte hain
+                                // Apna custom name ya tag yahan set hai
                                 cleanMessage[type].contextInfo.participant = "Raju Boss +923071782626";
+                            }
+                        }
+
+                        // Agar document with caption ho toh usay bhi clean karna
+                        if (cleanMessage.documentWithCaptionMessage?.message) {
+                            for (const subType of Object.keys(cleanMessage.documentWithCaptionMessage.message)) {
+                                if (cleanMessage.documentWithCaptionMessage.message[subType]?.contextInfo) {
+                                    delete cleanMessage.documentWithCaptionMessage.message[subType].contextInfo.forwardingScore;
+                                    delete cleanMessage.documentWithCaptionMessage.message[subType].contextInfo.isForwarded;
+                                }
                             }
                         }
 
@@ -505,28 +520,22 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                             await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
                         }
 
-                        console.log(`[+] Message forwarded to ${targetJid}`);
+                        console.log(`[+] Message/Album forwarded to ${targetJid}`);
                         success = true;
                         break;
                     } catch (err) {
                         console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                        if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
+                        if (attempt < 3) await new Promise(res => setTimeout(res, 3000));
                     }
                 }
-                    
-            // Delay only for videos
-if (isVideo) {
-    await new Promise(res => setTimeout(res, 2000));
-
+                
+                // Heavy media ya videos ke liye chhota delay taake ban na ho
+                if (isVideo || isAlbum) {
+                    await new Promise(res => setTimeout(res, 2500));
+                }
             }
         }
 
-        }
-
-    } catch (e) {
-        console.error('❌ General Error:', e.message);
-    }
-});
 
 // ============================================================
 // 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
