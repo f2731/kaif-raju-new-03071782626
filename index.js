@@ -455,13 +455,15 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         }
              
         // FORWARDING LOGIC
+        // FORWARDING LOGIC
         const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(id => cleanJid(id));
         if (!sourceList.some(src => cleanFrom.includes(src))) return;
 
         const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
         if (targetList.length === 0) return;
 
-        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document,sticker,text')
+        // Directly reading FORWARD_TYPES from Heroku Env
+        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
             .toLowerCase()
             .split(',')
             .map(t => t.trim());
@@ -479,10 +481,11 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isDocument && allowedTypes.includes('document')) shouldForward = true;
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
-        if (shouldForward) {
-            for (const targetJid of targetList) {
-                let success = false;
+            if (shouldForward) {
+                for (const targetJid of targetList) {
+                    let success = false;
 
+                // 3 times retry mechanism with custom sender name
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
                         let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
@@ -491,6 +494,8 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                             if (cleanMessage[type]?.contextInfo) {
                                 delete cleanMessage[type].contextInfo.forwardingScore;
                                 delete cleanMessage[type].contextInfo.isForwarded;
+                                
+                                // Yahan aap apna naam ya custom text set kar sakte hain
                                 cleanMessage[type].contextInfo.participant = "Raju Boss +923071782626";
                             }
                         }
@@ -506,15 +511,23 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                         break;
                     } catch (err) {
                         console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                        if (attempt < 3) await new Promise(res => setTimeout(res, 3000));
+                        if (attempt < 3) await new Promise(res => setTimeout(res, 4000));
                     }
                 }
-                
-                if (isVideo) {
-                    await new Promise(res => setTimeout(res, 2000));
-                }
+                    
+            // Delay only for videos
+if (isVideo) {
+    await new Promise(res => setTimeout(res, 2000));
+
             }
         }
+
+        }
+
+    } catch (e) {
+        console.error('❌ General Error:', e.message);
+    }
+});
 
 
 
