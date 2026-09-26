@@ -90,9 +90,6 @@ const NEW_TEXT = process.env.NEW_TEXT
 // HELPER FUNCTIONS FOR MESSAGE CLEANING
 // -----------------------------------------------------------------------------
 
-/**
- * Clean forwarded label from message
- */
 function cleanForwardedLabel(message) {
     try {
         let cleanedMessage = JSON.parse(JSON.stringify(message));
@@ -132,18 +129,6 @@ function cleanForwardedLabel(message) {
             }
         }
         
-        if (cleanedMessage.protocolMessage) {
-            if (cleanedMessage.protocolMessage.type === 14 || 
-                cleanedMessage.protocolMessage.type === 26) {
-                if (cleanedMessage.protocolMessage.historySyncNotification) {
-                    const syncData = cleanedMessage.protocolMessage.historySyncNotification;
-                    if (syncData.pushName) {
-                        console.log('Newsletter from:', syncData.pushName);
-                    }
-                }
-            }
-        }
-        
         return cleanedMessage;
     } catch (error) {
         console.error('Error cleaning forwarded label:', error);
@@ -151,9 +136,6 @@ function cleanForwardedLabel(message) {
     }
 }
 
-/**
- * Clean newsletter/information markers from text
- */
 function cleanNewsletterText(text) {
     if (!text) return text;
     
@@ -178,138 +160,18 @@ function cleanNewsletterText(text) {
         cleanedText = cleanedText.replace(marker, '');
     });
     
-    cleanedText = cleanedText.trim();
-    return cleanedText;
+    return cleanedText.trim();
 }
 
-/**
- * Replace caption text using regex patterns
- */
 function replaceCaption(caption) {
     if (!caption) return caption;
     if (!OLD_TEXT_REGEX.length || !NEW_TEXT) return caption;
     
     let result = caption;
-    
     OLD_TEXT_REGEX.forEach(regex => {
         result = result.replace(regex, NEW_TEXT);
     });
-    
     return result;
-}
-
-/**
- * Process and clean a message completely
- */
-function processAndCleanMessage(originalMessage) {
-    try {
-        let cleanedMessage = JSON.parse(JSON.stringify(originalMessage));
-        cleanedMessage = cleanForwardedLabel(cleanedMessage);
-        
-        const text = cleanedMessage.conversation ||
-            cleanedMessage.extendedTextMessage?.text ||
-            cleanedMessage.imageMessage?.caption ||
-            cleanedMessage.videoMessage?.caption ||
-            cleanedMessage.documentMessage?.caption || '';
-        
-        if (text) {
-            const cleanedText = cleanNewsletterText(text);
-            
-            if (cleanedMessage.conversation) {
-                cleanedMessage.conversation = cleanedText;
-            } else if (cleanedMessage.extendedTextMessage?.text) {
-                cleanedMessage.extendedTextMessage.text = cleanedText;
-            } else if (cleanedMessage.imageMessage?.caption) {
-                cleanedMessage.imageMessage.caption = replaceCaption(cleanedText);
-            } else if (cleanedMessage.videoMessage?.caption) {
-                cleanedMessage.videoMessage.caption = replaceCaption(cleanedText);
-            } else if (cleanedMessage.documentMessage?.caption) {
-                cleanedMessage.documentMessage.caption = replaceCaption(cleanedText);
-            }
-        }
-        
-        delete cleanedMessage.protocolMessage;
-        
-        if (cleanedMessage.extendedTextMessage?.contextInfo?.participant) {
-            const participant = cleanedMessage.extendedTextMessage.contextInfo.participant;
-            if (participant.includes('newsletter') || participant.includes('broadcast')) {
-                delete cleanedMessage.extendedTextMessage.contextInfo.participant;
-                delete cleanedMessage.extendedTextMessage.contextInfo.stanzaId;
-                delete cleanedMessage.extendedTextMessage.contextInfo.remoteJid;
-            }
-        }
-        
-        if (cleanedMessage.extendedTextMessage) {
-            cleanedMessage.extendedTextMessage.contextInfo = cleanedMessage.extendedTextMessage.contextInfo || {};
-            cleanedMessage.extendedTextMessage.contextInfo.isForwarded = false;
-            cleanedMessage.extendedTextMessage.contextInfo.forwardingScore = 0;
-        }
-        
-        return cleanedMessage;
-    } catch (error) {
-        console.error('Error processing message:', error);
-        return originalMessage;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// COMMAND HANDLER FUNCTIONS
-// -----------------------------------------------------------------------------
-
-async function handlePingCommand(sock, from) {
-    await sock.sendMessage(from, { text: "Raju-Autoforward-Bot is Working Fast (923071782626)" });
-    console.log(`Ping command executed for ${from}`);
-}
-
-async function handleJidCommand(sock, from) {
-    await sock.sendMessage(from, { text: `${from}` });
-    console.log(`JID command executed for ${from}`);
-}
-
-async function handleGjidCommand(sock, from) {
-    try {
-        const groups = await sock.groupFetchAllParticipating();
-        
-        let response = "📌 *Groups List:*\n\n";
-        let groupCount = 1;
-        
-        for (const [jid, group] of Object.entries(groups)) {
-            const groupName = group.subject || "Unnamed Group";
-            const participantsCount = group.participants ? group.participants.length : 0;
-            
-            let groupType = "Simple Group";
-            if (group.isCommunity) {
-                groupType = "Community";
-            } else if (group.isCommunityAnnounce) {
-                groupType = "Community Announcement";
-            } else if (group.parentGroup) {
-                groupType = "Subgroup";
-            }
-            
-            response += `${groupCount}. *${groupName}*\n`;
-            response += `   👥 Members: ${participantsCount}\n`;
-            response += `   🆔: \`${jid}\`\n`;
-            response += `   📝 Type: ${groupType}\n`;
-            response += `   ──────────────\n\n`;
-            
-            groupCount++;
-        }
-        
-        if (groupCount === 1) {
-            response = "❌ No groups found. You are not in any groups.";
-        } else {
-            response += `\n*Total Groups: ${groupCount - 1}*`;
-        }
-        
-        await sock.sendMessage(from, { text: response });
-        console.log(`GJID command executed. Sent ${groupCount - 1} groups list.`);
-        
-    } catch (error) {
-        console.error('Error fetching groups:', error);
-        await sock.sendMessage(from, { 
-            text: "❌ Error fetching groups list. Please try again later." 
-        });
-    }
 }
 
 // -----------------------------------------------------------------------------
@@ -379,120 +241,116 @@ async function startSession(sessionId) {
 
     wasi_sock.ev.on('creds.update', saveCreds);
 
-// Universal JID Cleaner
-const cleanJid = (id) => id ? id.split(':')[0].trim() : '';
+    // Universal JID Cleaner
+    const cleanJid = (id) => id ? id.split(':')[0].trim() : '';
 
-wasi_sock.ev.on('messages.upsert', async wasi_m => {
-    try {
-        const wasi_msg = wasi_m.messages[0];
-        if (!wasi_msg || !wasi_msg.message) return;
+    wasi_sock.ev.on('messages.upsert', async wasi_m => {
+        try {
+            const wasi_msg = wasi_m.messages[0];
+            if (!wasi_msg || !wasi_msg.message) return;
 
-        const rawFrom = wasi_msg.key.remoteJid;
-        const cleanFrom = cleanJid(rawFrom);
-        const msgContent = wasi_msg.message;
+            const rawFrom = wasi_msg.key.remoteJid;
+            const cleanFrom = cleanJid(rawFrom);
+            const msgContent = wasi_msg.message;
 
-        // Extract Text Properly
-        const msgText = (
-            msgContent.conversation || 
-            msgContent.extendedTextMessage?.text || 
-            msgContent.imageMessage?.caption || 
-            msgContent.videoMessage?.caption || 
-            ''
-        ).trim();
+            const msgText = (
+                msgContent.conversation || 
+                msgContent.extendedTextMessage?.text || 
+                msgContent.imageMessage?.caption || 
+                msgContent.videoMessage?.caption || 
+                ''
+            ).trim();
 
-        // 1. PING COMMAND
-        if (msgText.toLowerCase() === '!ping') {
-            await wasi_sock.sendMessage(rawFrom, { text: '⚡ Raju AutoForward Bot Online!' }, { quoted: wasi_msg });
-            return;
-        }
-
-        // 2. JID COMMAND
-        if (msgText.toLowerCase() === '!jid') {
-            await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
-            return;
-        }
-        
-        // 3. ALL GROUPS & COMMUNITIES JID LIST
-        if (msgText.toLowerCase() === '!gjid') {
-            try {
-                const getGroups = await wasi_sock.groupFetchAllParticipating();
-                const groups = Object.values(getGroups);
-
-                if (groups.length === 0) {
-                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Koi group ya community nahi mili.' }, { quoted: wasi_msg });
-                    return;
-                }
-
-                let txt = '📌 *Groups List:*\n\n';
-                groups.forEach((g, i) => {
-                    const isComm = g.isCommunity || g.isCommunityAnnounce ? 'Community' : 'Group';
-                    txt += `${i + 1}. 📲 *${g.subject}*\n👥 Members: ${g.participants ? g.participants.length : 'N/A'}\n🆔 : \`${g.id}\`\n📝 Type: ${isComm}\n__________________\n\n`;
-                });
-
-                await wasi_sock.sendMessage(rawFrom, { text: txt }, { quoted: wasi_msg });
-            } catch (err) {
-                await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
+            // 1. PING COMMAND
+            if (msgText.toLowerCase() === '!ping') {
+                await wasi_sock.sendMessage(rawFrom, { text: '⚡ Raju AutoForward Bot Online!' }, { quoted: wasi_msg });
+                return;
             }
-            return;
-        }
 
-        // 4. JOIN GROUP COMMAND (By Replying to Link)
-        if (msgText.toLowerCase() === '!join') {
-            try {
-                const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
-                const quotedText = quotedMsg?.conversation || 
-                                   quotedMsg?.extendedTextMessage?.text || 
-                                   quotedMsg?.imageMessage?.caption || 
-                                   quotedMsg?.videoMessage?.caption || '';
-
-                // Link extract karne ka regex
-                const match = quotedText.match(/chat\.whatsapp\.com\/([0-9A-Za-z]{20,24})/);
-                
-                if (!match) {
-                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam kisi aisay message ko reply karein jis mein WhatsApp group ka link ho!' }, { quoted: wasi_msg });
-                    return;
-                }
-
-                const inviteCode = match[1];
-                const res = await wasi_sock.groupAcceptInvite(inviteCode);
-                await wasi_sock.sendMessage(rawFrom, { text: `✅ Kamyabi se group join kar liya gaya hai! (ID: ${res})` }, { quoted: wasi_msg });
-            } catch (err) {
-                await wasi_sock.sendMessage(rawFrom, { text: `❌ Group join karne mein nakami: ${err.message}` }, { quoted: wasi_msg });
+            // 2. JID COMMAND
+            if (msgText.toLowerCase() === '!jid') {
+                await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
+                return;
             }
-            return;
-        }
-             
-        // FORWARDING LOGIC (MAPPING BASED)
-        const forwardMap = getForwardMapping();
-        const matchedTarget = Object.keys(forwardMap).find(src => cleanFrom.includes(src));
-        if (!matchedTarget) return;
+            
+            // 3. ALL GROUPS & COMMUNITIES JID LIST
+            if (msgText.toLowerCase() === '!gjid') {
+                try {
+                    const getGroups = await wasi_sock.groupFetchAllParticipating();
+                    const groups = Object.values(getGroups);
 
-        const targetJid = forwardMap[matchedTarget];
-        if (!targetJid) return;
+                    if (groups.length === 0) {
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Koi group ya community nahi mili.' }, { quoted: wasi_msg });
+                        return;
+                    }
 
-        // Directly reading FORWARD_TYPES from Heroku Env
-        const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
-            .toLowerCase()
-            .split(',')
-            .map(t => t.trim());
+                    let txt = '📌 *Groups List:*\n\n';
+                    groups.forEach((g, i) => {
+                        const isComm = g.isCommunity || g.isCommunityAnnounce ? 'Community' : 'Group';
+                        txt += `${i + 1}. 📲 *${g.subject}*\n👥 Members: ${g.participants ? g.participants.length : 'N/A'}\n🆔 : \`${g.id}\`\n📝 Type: ${isComm}\n__________________\n\n`;
+                    });
 
-        const isVideo = !!(msgContent.videoMessage);
-        const isImage = !!(msgContent.imageMessage);
-        const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
-        const isDocument = !!(msgContent.documentMessage);
-        const isSticker = !!(msgContent.stickerMessage);
+                    await wasi_sock.sendMessage(rawFrom, { text: txt }, { quoted: wasi_msg });
+                } catch (err) {
+                    await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
+                }
+                return;
+            }
 
-        let shouldForward = false;
-        if (isVideo && allowedTypes.includes('video')) shouldForward = true;
-        if (isImage && allowedTypes.includes('image')) shouldForward = true;
-        if (isText && allowedTypes.includes('text')) shouldForward = true;
-        if (isDocument && allowedTypes.includes('document')) shouldForward = true;
-        if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
+            // 4. JOIN GROUP COMMAND (By Replying to Link)
+            if (msgText.toLowerCase() === '!join') {
+                try {
+                    const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
+                    const quotedText = quotedMsg?.conversation || 
+                                       quotedMsg?.extendedTextMessage?.text || 
+                                       quotedMsg?.imageMessage?.caption || 
+                                       quotedMsg?.videoMessage?.caption || '';
+
+                    const match = quotedText.match(/chat\.whatsapp\.com\/([0-9A-Za-z]{20,24})/);
+                    
+                    if (!match) {
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam kisi aisay message ko reply karein jis mein WhatsApp group ka link ho!' }, { quoted: wasi_msg });
+                        return;
+                    }
+
+                    const inviteCode = match[1];
+                    const res = await wasi_sock.groupAcceptInvite(inviteCode);
+                    await wasi_sock.sendMessage(rawFrom, { text: `✅ Kamyabi se group join kar liya gaya hai! (ID: ${res})` }, { quoted: wasi_msg });
+                } catch (err) {
+                    await wasi_sock.sendMessage(rawFrom, { text: `❌ Group join karne mein nakami: ${err.message}` }, { quoted: wasi_msg });
+                }
+                return;
+            }
+                 
+            // FORWARDING LOGIC (MAPPING BASED)
+            const forwardMap = getForwardMapping();
+            const matchedTarget = Object.keys(forwardMap).find(src => cleanFrom.includes(src));
+            if (!matchedTarget) return;
+
+            const targetJid = forwardMap[matchedTarget];
+            if (!targetJid) return;
+
+            const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
+                .toLowerCase()
+                .split(',')
+                .map(t => t.trim());
+
+            const isVideo = !!(msgContent.videoMessage);
+            const isImage = !!(msgContent.imageMessage);
+            const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
+            const isDocument = !!(msgContent.documentMessage);
+            const isSticker = !!(msgContent.stickerMessage);
+
+            let shouldForward = false;
+            if (isVideo && allowedTypes.includes('video')) shouldForward = true;
+            if (isImage && allowedTypes.includes('image')) shouldForward = true;
+            if (isText && allowedTypes.includes('text')) shouldForward = true;
+            if (isDocument && allowedTypes.includes('document')) shouldForward = true;
+            if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
             if (shouldForward) {
                 let success = false;
 
-                // 3 times retry mechanism with custom sender name
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
                         let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
@@ -526,10 +384,11 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                 }
             }
 
-    } catch (e) {
-        console.error('❌ General Error:', e.message);
-    }
-});
+        } catch (e) {
+            console.error('❌ General Error:', e.message);
+        }
+    });
+}
 
 // ============================================================
 // 🚀 ALL APIS
