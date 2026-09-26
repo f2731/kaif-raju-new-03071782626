@@ -51,15 +51,25 @@ setInterval(() => {
 }, 30 * 60 * 1000);
 
 // -----------------------------------------------------------------------------
-// AUTO FORWARD CONFIGURATION
+// AUTO FORWARD CONFIGURATION (MAPPING BASED)
 // -----------------------------------------------------------------------------
-const SOURCE_JIDS = process.env.SOURCE_JIDS
-    ? process.env.SOURCE_JIDS.split(',')
-    : [];
-
-const TARGET_JIDS = process.env.TARGET_JIDS
-    ? process.env.TARGET_JIDS.split(',')
-    : [];
+function getForwardMapping() {
+    const map = {};
+    const rawMap = process.env.FORWARD_MAP || '';
+    if (!rawMap) return map;
+    
+    rawMap.split(',').forEach(pair => {
+        const parts = pair.split(':');
+        if (parts.length === 2) {
+            const src = parts[0].trim().split('@')[0];
+            const tgt = parts[1].trim();
+            if (src && tgt) {
+                map[src] = tgt;
+            }
+        }
+    });
+    return map;
+}
 
 const OLD_TEXT_REGEX = process.env.OLD_TEXT_REGEX
     ? process.env.OLD_TEXT_REGEX.split(',').map(pattern => {
@@ -452,12 +462,13 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             return;
         }
              
-        // FORWARDING LOGIC
-        const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(id => cleanJid(id));
-        if (!sourceList.some(src => cleanFrom.includes(src))) return;
+        // FORWARDING LOGIC (MAPPING BASED)
+        const forwardMap = getForwardMapping();
+        const matchedTarget = Object.keys(forwardMap).find(src => cleanFrom.includes(src));
+        if (!matchedTarget) return;
 
-        const targetList = (process.env.TARGET_JIDS || '').split(',').map(id => id.trim()).filter(Boolean);
-        if (targetList.length === 0) return;
+        const targetJid = forwardMap[matchedTarget];
+        if (!targetJid) return;
 
         // Directly reading FORWARD_TYPES from Heroku Env
         const allowedTypes = (process.env.FORWARD_TYPES || 'video,image,document')
@@ -479,8 +490,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
         if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
 
             if (shouldForward) {
-                for (const targetJid of targetList) {
-                    let success = false;
+                let success = false;
 
                 // 3 times retry mechanism with custom sender name
                 for (let attempt = 1; attempt <= 3; attempt++) {
@@ -502,7 +512,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                             await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
                         }
 
-                        console.log(`[+] Message forwarded to ${targetJid}`);
+                        console.log(`[+] Message forwarded from ${cleanFrom} to ${targetJid}`);
                         success = true;
                         break;
                     } catch (err) {
@@ -511,12 +521,10 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                     }
                 }
                     
-            if (isVideo) {
-                await new Promise(res => setTimeout(res, 2000));
+                if (isVideo) {
+                    await new Promise(res => setTimeout(res, 2000));
+                }
             }
-        }
-
-        }
 
     } catch (e) {
         console.error('❌ General Error:', e.message);
@@ -625,7 +633,6 @@ wasi_app.get('/api/sessions', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-}
 
 wasi_app.get('/api/health', async (req, res) => {
     res.json({
@@ -643,7 +650,6 @@ wasi_app.get('/api/health', async (req, res) => {
 function wasi_startServer() {
     wasi_app.listen(wasi_port, () => {
         console.log(`🌐 Server running on port ${wasi_port}`);
-        console.log(`📡 Auto Forward: ${SOURCE_JIDS.length} source(s) → ${TARGET_JIDS.length} target(s)`);
         console.log(`🤖 Bot Commands: !ping, !jid, !gjid, !join`);
     });
 }
