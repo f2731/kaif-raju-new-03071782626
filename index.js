@@ -302,35 +302,6 @@ async function handleGjidCommand(sock, from) {
     }
 }
 
-async function processCommand(sock, msg) {
-    const from = msg.key.remoteJid;
-    const text = msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        msg.message.imageMessage?.caption ||
-        msg.message.videoMessage?.caption ||
-        "";
-    
-    if (!text || !text.startsWith('!')) return;
-    
-            const command = text.trim();
-        const lowerCommand = command.toLowerCase();
-
-        try {
-            if (lowerCommand === '!ping') {
-                await handlePingCommand(sock, from);
-            }
-            else if (lowerCommand === '!jid') {
-                await handleJidCommand(sock, from);
-            }
-            else if (lowerCommand === '!gjid') {
-                await handleGjidCommand(sock, from);
-            }
-
-    } catch (error) {
-        console.error('Command execution error:', error);
-    }
-}
-
 // -----------------------------------------------------------------------------
 // SESSION MANAGEMENT
 // -----------------------------------------------------------------------------
@@ -430,6 +401,7 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
             return;
         }
+        
         // 3. ALL GROUPS & COMMUNITIES JID LIST
         if (msgText.toLowerCase() === '!gjid') {
             try {
@@ -453,8 +425,33 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
             }
             return;
         }
+
+        // 4. JOIN GROUP COMMAND (By Replying to Link)
+        if (msgText.toLowerCase() === '!join') {
+            try {
+                const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
+                const quotedText = quotedMsg?.conversation || 
+                                   quotedMsg?.extendedTextMessage?.text || 
+                                   quotedMsg?.imageMessage?.caption || 
+                                   quotedMsg?.videoMessage?.caption || '';
+
+                // Link extract karne ka regex
+                const match = quotedText.match(/chat\.whatsapp\.com\/([0-9A-Za-z]{20,24})/);
+                
+                if (!match) {
+                    await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam kisi aisay message ko reply karein jis mein WhatsApp group ka link ho!' }, { quoted: wasi_msg });
+                    return;
+                }
+
+                const inviteCode = match[1];
+                const res = await wasi_sock.groupAcceptInvite(inviteCode);
+                await wasi_sock.sendMessage(rawFrom, { text: `✅ Kamyabi se group join kar liya gaya hai! (ID: ${res})` }, { quoted: wasi_msg });
+            } catch (err) {
+                await wasi_sock.sendMessage(rawFrom, { text: `❌ Group join karne mein nakami: ${err.message}` }, { quoted: wasi_msg });
+            }
+            return;
+        }
              
-        // FORWARDING LOGIC
         // FORWARDING LOGIC
         const sourceList = (process.env.SOURCE_JIDS || '').split(',').map(id => cleanJid(id));
         if (!sourceList.some(src => cleanFrom.includes(src))) return;
@@ -495,7 +492,6 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                                 delete cleanMessage[type].contextInfo.forwardingScore;
                                 delete cleanMessage[type].contextInfo.isForwarded;
                                 
-                                // Yahan aap apna naam ya custom text set kar sakte hain
                                 cleanMessage[type].contextInfo.participant = "Raju Boss +923071782626";
                             }
                         }
@@ -515,10 +511,8 @@ wasi_sock.ev.on('messages.upsert', async wasi_m => {
                     }
                 }
                     
-            // Delay only for videos
-if (isVideo) {
-    await new Promise(res => setTimeout(res, 2000));
-
+            if (isVideo) {
+                await new Promise(res => setTimeout(res, 2000));
             }
         }
 
@@ -529,15 +523,10 @@ if (isVideo) {
     }
 });
 
-
-
 // ============================================================
-// 🚀 ALL APIS (ADD THESE TO YOUR INDEX.JS)
+// 🚀 ALL APIS
 // ============================================================
 
-// -----------------------------------------------------------------------------
-// API: GET STATUS
-// -----------------------------------------------------------------------------
 wasi_app.get('/api/status', async (req, res) => {
     const sessionId = req.query.sessionId || config.sessionId || 'wasi_session';
     const session = sessions.get(sessionId);
@@ -546,11 +535,9 @@ wasi_app.get('/api/status', async (req, res) => {
     let connected = false;
     let dbConnected = false;
 
-    // Check database connection
     if (config.mongoDbUrl) {
         try {
-            // You can add your actual DB check here
-            dbConnected = true; // Placeholder - replace with actual check
+            dbConnected = true;
         } catch (e) {
             dbConnected = false;
         }
@@ -577,14 +564,9 @@ wasi_app.get('/api/status', async (req, res) => {
     });
 });
 
-// -----------------------------------------------------------------------------
-// API: RESTART BOT
-// -----------------------------------------------------------------------------
 wasi_app.post('/api/restart', async (req, res) => {
     try {
         console.log('🔄 Restarting bot...');
-        
-        // Clear all sessions
         for (const [sessionId, session] of sessions) {
             if (session.sock) {
                 try {
@@ -595,12 +577,9 @@ wasi_app.post('/api/restart', async (req, res) => {
             }
         }
         sessions.clear();
-        
-        // Restart the main function after a delay
         setTimeout(() => {
             main().catch(err => console.error('Restart error:', err));
         }, 1000);
-        
         res.json({ success: true, message: 'Bot restarting...' });
     } catch (error) {
         console.error('Restart error:', error);
@@ -608,9 +587,6 @@ wasi_app.post('/api/restart', async (req, res) => {
     }
 });
 
-// -----------------------------------------------------------------------------
-// API: LOGOUT
-// -----------------------------------------------------------------------------
 wasi_app.post('/api/logout', async (req, res) => {
     try {
         const sessionId = req.query.sessionId || config.sessionId || 'wasi_session';
@@ -633,9 +609,6 @@ wasi_app.post('/api/logout', async (req, res) => {
     }
 });
 
-// -----------------------------------------------------------------------------
-// API: GET SESSIONS LIST
-// -----------------------------------------------------------------------------
 wasi_app.get('/api/sessions', async (req, res) => {
     try {
         const sessionList = Array.from(sessions.keys()).map(id => ({
@@ -653,9 +626,7 @@ wasi_app.get('/api/sessions', async (req, res) => {
     }
 });
 }
-// -----------------------------------------------------------------------------
-// API: HEALTH CHECK
-// -----------------------------------------------------------------------------
+
 wasi_app.get('/api/health', async (req, res) => {
     res.json({
         status: 'ok',
@@ -666,10 +637,6 @@ wasi_app.get('/api/health', async (req, res) => {
     });
 });
 
-// ============================================================
-// END OF APIS
-// ============================================================
-
 // -----------------------------------------------------------------------------
 // SERVER START
 // -----------------------------------------------------------------------------
@@ -677,14 +644,7 @@ function wasi_startServer() {
     wasi_app.listen(wasi_port, () => {
         console.log(`🌐 Server running on port ${wasi_port}`);
         console.log(`📡 Auto Forward: ${SOURCE_JIDS.length} source(s) → ${TARGET_JIDS.length} target(s)`);
-        console.log(`✨ Message Cleaning: Forwarded labels removed, Newsletter markers cleaned`);
-        console.log(`🤖 Bot Commands: !ping, !jid, !gjid`);
-        console.log(`\n📌 API Endpoints:`);
-        console.log(`   GET  /api/status     - Get bot status`);
-        console.log(`   POST /api/restart    - Restart bot`);
-        console.log(`   POST /api/logout     - Logout bot`);
-        console.log(`   GET  /api/sessions   - List all sessions`);
-        console.log(`   GET  /api/health     - Health check`);
+        console.log(`🤖 Bot Commands: !ping, !jid, !gjid, !join`);
     });
 }
 
@@ -692,7 +652,6 @@ function wasi_startServer() {
 // MAIN STARTUP
 // -----------------------------------------------------------------------------
 async function main() {
-    // 1. Connect DB if configured
     if (config.mongoDbUrl) {
         const dbResult = await wasi_connectDatabase(config.mongoDbUrl);
         if (dbResult) {
@@ -700,21 +659,18 @@ async function main() {
         }
     }
 
-    // 2. Start default session
     const sessionId = config.sessionId || 'wasi_session';
     await startSession(sessionId);
 
-    // 3. Start server
     wasi_startServer();
 }
-// Auto memory check and clean restart
+
 setInterval(() => {
     const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
     if (memoryUsage > 450) {
         console.log(`⚠️ High Memory Usage detected (${Math.round(memoryUsage)}MB). Restarting process...`);
-        process.exit(0); // Heroku will automatically restart the dyno
+        process.exit(0);
     }
 }, 5 * 60 * 1000);
-
 
 main();
