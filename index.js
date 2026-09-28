@@ -283,20 +283,30 @@ async function startSession(sessionId) {
             }
 
             // =========================================================================
-            // ⚙️ WHATSAPP DYNAMIC COMMANDS FOR SOURCE & TARGET MANAGEMENT
+            // ⚙️ WHATSAPP DYNAMIC COMMANDS FOR MULTI-SOURCE & MULTI-TARGET MANAGEMENT
             // =========================================================================
             if (msgText.toLowerCase().startsWith('!addsource')) {
-                const parts = msgText.split(' ');
-                const targetJidToAdd = parts[1] ? parts[1].trim() : rawFrom;
+                const queryContent = msgText.slice(10).trim();
+                const jidsToAdd = queryContent ? queryContent.split(/[\s,]+/).filter(Boolean) : [rawFrom];
                 
                 config.sourceJids = config.sourceJids || [];
-                if (!config.sourceJids.includes(targetJidToAdd)) {
-                    config.sourceJids.push(targetJidToAdd);
-                    saveBotConfig();
-                    await wasi_sock.sendMessage(rawFrom, { text: `✅ Successfully added source JID:\n\`${targetJidToAdd}\`` }, { quoted: wasi_msg });
-                } else {
-                    await wasi_sock.sendMessage(rawFrom, { text: `⚠️ Yeh JID pehle se source list mein mojood hai.` }, { quoted: wasi_msg });
+                let addedCount = 0;
+                let alreadyExists = 0;
+
+                for (let jid of jidsToAdd) {
+                    if (!config.sourceJids.includes(jid)) {
+                        config.sourceJids.push(jid);
+                        addedCount++;
+                    } else {
+                        alreadyExists++;
+                    }
                 }
+
+                if (addedCount > 0) {
+                    saveBotConfig();
+                }
+
+                await wasi_sock.sendMessage(rawFrom, { text: `✅ Successfully added ${addedCount} source JID(s).\n⚠️ Already existing: ${alreadyExists}` }, { quoted: wasi_msg });
                 return;
             }
 
@@ -312,17 +322,27 @@ async function startSession(sessionId) {
             }
 
             if (msgText.toLowerCase().startsWith('!addtarget')) {
-                const parts = msgText.split(' ');
-                const targetJidToAdd = parts[1] ? parts[1].trim() : rawFrom;
+                const queryContent = msgText.slice(10).trim();
+                const jidsToAdd = queryContent ? queryContent.split(/[\s,]+/).filter(Boolean) : [rawFrom];
                 
                 config.targetJids = config.targetJids || [];
-                if (!config.targetJids.includes(targetJidToAdd)) {
-                    config.targetJids.push(targetJidToAdd);
-                    saveBotConfig();
-                    await wasi_sock.sendMessage(rawFrom, { text: `✅ Successfully added target JID:\n\`${targetJidToAdd}\`` }, { quoted: wasi_msg });
-                } else {
-                    await wasi_sock.sendMessage(rawFrom, { text: `⚠️ Yeh JID pehle se target list mein mojood hai.` }, { quoted: wasi_msg });
+                let addedCount = 0;
+                let alreadyExists = 0;
+
+                for (let jid of jidsToAdd) {
+                    if (!config.targetJids.includes(jid)) {
+                        config.targetJids.push(jid);
+                        addedCount++;
+                    } else {
+                        alreadyExists++;
+                    }
                 }
+
+                if (addedCount > 0) {
+                    saveBotConfig();
+                }
+
+                await wasi_sock.sendMessage(rawFrom, { text: `✅ Successfully added ${addedCount} target JID(s).\n⚠️ Already existing: ${alreadyExists}` }, { quoted: wasi_msg });
                 return;
             }
 
@@ -473,6 +493,7 @@ wasi_app.post('/api/logout', async (req, res) => {
         
         res.json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
+        console.error('Logout error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
