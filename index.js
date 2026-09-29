@@ -1,3 +1,4 @@
+ain startup error:', err));
 require('dotenv').config();
 const {
     DisconnectReason,
@@ -278,21 +279,29 @@ async function startSession(sessionId) {
                         return;
                     }
 
+                    let successCount = 0;
                     for (const targetJid of targetList) {
                         try {
-                            await wasi_sock.sendMessage(targetJid, quotedMsg);
+                            // Pehle relayMessage koshish karein taake media/file seedha forward ho jaye
+                            await wasi_sock.relayMessage(targetJid, quotedMsg, { messageId: wasi_msg.key.id });
+                            successCount++;
                         } catch (mediaErr) {
                             try {
-                                await wasi_sock.relayMessage(targetJid, quotedMsg, {});
-                            } catch (relayErr) {
-                                console.error(`Relay error for ${targetJid}:`, relayErr.message);
+                                // Agar relay fail ho toh sendMessage try karein
+                                await wasi_sock.sendMessage(targetJid, quotedMsg);
+                                successCount++;
+                            } catch (sendErr) {
+                                console.error(`Forward error for ${targetJid}:`, sendErr.message);
                             }
                         }
-                        // Fast aur safe speed ke liye chota sa delay taake rate-overlimit error na aaye
                         await new Promise(resolve => setTimeout(resolve, 800));
                     }
 
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target group par forward kar diya gaya hai!' }, { quoted: wasi_msg });
+                    if (successCount > 0) {
+                        await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target group par forward kar diya gaya hai!' }, { quoted: wasi_msg });
+                    } else {
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Message forward nahi ho saka. Console log check karein.' }, { quoted: wasi_msg });
+                    }
                 } catch (err) {
                     await wasi_sock.sendMessage(rawFrom, { text: `❌ Forward karne mein nakami: ${err.message}` }, { quoted: wasi_msg });
                 }
@@ -341,9 +350,9 @@ async function startSession(sessionId) {
                             }
 
                             try {
-                                await wasi_sock.sendMessage(targetJid, cleanMessage);
-                            } catch (mediaErr) {
                                 await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
+                            } catch (mediaErr) {
+                                await wasi_sock.sendMessage(targetJid, cleanMessage);
                             }
 
                             console.log(`[+] Message forwarded to ${targetJid}`);
