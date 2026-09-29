@@ -264,17 +264,30 @@ async function startSession(sessionId) {
                         return;
                     }
 
-                    const targetList = getTargetJids();
+                    // Check if a specific JID is provided after !forward
+                    const args = msgText.split(' ');
+                    let targetList = [];
+
+                    if (args.length > 1 && args[1].includes('@')) {
+                        targetList = [args[1].trim()];
+                    } else {
+                        targetList = getTargetJids();
+                    }
+
                     if (targetList.length === 0) {
                         await wasi_sock.sendMessage(rawFrom, { text: '❌ Koi target JID configure nahi hai!' }, { quoted: wasi_msg });
                         return;
                     }
 
                     for (const targetJid of targetList) {
-                        await wasi_sock.sendMessage(targetJid, quotedMsg);
+                        try {
+                            await wasi_sock.sendMessage(targetJid, quotedMsg);
+                        } catch (mediaErr) {
+                            await wasi_sock.relayMessage(targetJid, quotedMsg, {});
+                        }
                     }
 
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target groups par forward kar diya gaya hai!' }, { quoted: wasi_msg });
+                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target group par forward kar diya gaya hai!' }, { quoted: wasi_msg });
                 } catch (err) {
                     await wasi_sock.sendMessage(rawFrom, { text: `❌ Forward karne mein nakami: ${err.message}` }, { quoted: wasi_msg });
                 }
