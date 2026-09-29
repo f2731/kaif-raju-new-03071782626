@@ -189,13 +189,22 @@ async function startSession(sessionId) {
                 return;
             }
 
-            // 5. MANUAL FORWARD COMMAND (!forward) - WITHOUT DOWNLOAD (DIRECT RELAY)
+            // 5. MANUAL FORWARD COMMAND (!forward) - UPDATED FOR DOCUMENTS & MEDIA
             if (msgText.toLowerCase().startsWith('!forward')) {
                 try {
                     const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
                     if (!quotedMsg) {
                         await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam us message ko reply karke !forward likhen jo aap bhejwana chahte hain!' }, { quoted: wasi_msg });
                         return;
+                    }
+
+                    let forwardContent = JSON.parse(JSON.stringify(quotedMsg));
+                    if (forwardContent.viewOnceMessageV2) {
+                        forwardContent = forwardContent.viewOnceMessageV2.message;
+                    } else if (forwardContent.viewOnceMessage) {
+                        forwardContent = forwardContent.viewOnceMessage.message;
+                    } else if (forwardContent.documentWithCaptionMessage) {
+                        forwardContent = forwardContent.documentWithCaptionMessage.message;
                     }
 
                     const args = msgText.split(' ');
@@ -215,16 +224,18 @@ async function startSession(sessionId) {
                     let successCount = 0;
                     for (const targetJid of targetList) {
                         try {
-                            let forwardContent = JSON.parse(JSON.stringify(quotedMsg));
-                            for (const type of Object.keys(forwardContent)) {
-                                if (forwardContent[type]?.contextInfo) {
-                                    delete forwardContent[type].contextInfo.forwardingScore;
-                                    delete forwardContent[type].contextInfo.isForwarded;
-                                    forwardContent[type].contextInfo.participant = "Raju Boss +923071782626";
+                            let finalPayload = JSON.parse(JSON.stringify(forwardContent));
+                            
+                            const messageTypes = ['conversation', 'extendedTextMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'];
+                            for (const type of messageTypes) {
+                                if (finalPayload[type]?.contextInfo) {
+                                    delete finalPayload[type].contextInfo.forwardingScore;
+                                    delete finalPayload[type].contextInfo.isForwarded;
+                                    finalPayload[type].contextInfo.participant = "Raju Boss +923071782626";
                                 }
                             }
 
-                            await wasi_sock.relayMessage(targetJid, forwardContent, { messageId: wasi_msg.key.id });
+                            await wasi_sock.relayMessage(targetJid, finalPayload, { messageId: wasi_msg.key.id });
                             successCount++;
                         } catch (mediaErr) {
                             console.error(`Forward error for ${targetJid}:`, mediaErr.message);
@@ -233,7 +244,7 @@ async function startSession(sessionId) {
                     }
 
                     if (successCount > 0) {
-                        await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target group par forward kar diya gaya hai!' }, { quoted: wasi_msg });
+                        await wasi_sock.sendMessage(rawFrom, { text: '✅ Message (Document/Media) kamyabi se forward kar diya gaya hai!' }, { quoted: wasi_msg });
                     } else {
                         await wasi_sock.sendMessage(rawFrom, { text: '❌ Message forward nahi ho saka. Console log check karein.' }, { quoted: wasi_msg });
                     }
