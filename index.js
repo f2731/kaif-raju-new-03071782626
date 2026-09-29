@@ -362,7 +362,7 @@ wasi_app.get('/api/sessions', async (req, res) => {
         sessionId: id,
         isConnected: sessions.get(id)?.isConnected || false
     }));
-    res.json({ success: true, sessions: sessions: sessionList, total: sessionList.length });
+    res.json({ success: true, sessions: sessionList, total: sessionList.length });
 });
 
 wasi_app.get('/api/health', async (req, res) => {
