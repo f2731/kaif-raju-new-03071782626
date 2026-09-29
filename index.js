@@ -15,29 +15,6 @@ const { wasi_connectDatabase } = require('./wasilib/database');
 const config = require('./wasi');
 const { cleanTempFiles } = require('./wasilib/cleaner');
 
-// Load persistent config and merge with runtime config
-const CONFIG_FILE = path.join(__dirname, 'botConfig.json');
-try {
-    if (fs.existsSync(CONFIG_FILE)) {
-        const savedConfig = JSON.parse(fs.readFileSync(CONFIG_FILE));
-        Object.assign(config, savedConfig);
-    }
-} catch (e) {
-    console.error('Failed to load botConfig.json:', e);
-}
-
-// Helper to save dynamic config state
-function saveBotConfig() {
-    try {
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify({
-            sourceJids: config.sourceJids,
-            targetJids: config.targetJids
-        }, null, 2));
-    } catch (e) {
-        console.error('Failed to save botConfig.json:', e);
-    }
-}
-
 const wasi_app = express();
 const wasi_port = process.env.PORT || 3000;
 
@@ -64,18 +41,14 @@ setInterval(() => {
 }, 30 * 60 * 1000);
 
 // -----------------------------------------------------------------------------
-// AUTO FORWARD CONFIGURATION (Heroku + Dynamic Config Merge)
+// AUTO FORWARD CONFIGURATION
 // -----------------------------------------------------------------------------
 function getSourceJids() {
-    let envSources = process.env.SOURCE_JIDS ? process.env.SOURCE_JIDS.split(',').map(id => id.trim()).filter(Boolean) : [];
-    let savedSources = config.sourceJids || [];
-    return Array.from(new Set([...envSources, ...savedSources]));
+    return process.env.SOURCE_JIDS ? process.env.SOURCE_JIDS.split(',').map(id => id.trim()).filter(Boolean) : [];
 }
 
 function getTargetJids() {
-    let envTargets = process.env.TARGET_JIDS ? process.env.TARGET_JIDS.split(',').map(id => id.trim()).filter(Boolean) : [];
-    let savedTargets = config.targetJids || [];
-    return Array.from(new Set([...envTargets, ...savedTargets]));
+    return process.env.TARGET_JIDS ? process.env.TARGET_JIDS.split(',').map(id => id.trim()).filter(Boolean) : [];
 }
 
 const OLD_TEXT_REGEX = process.env.OLD_TEXT_REGEX
@@ -282,91 +255,29 @@ async function startSession(sessionId) {
                 return;
             }
 
-            // =========================================================================
-            // ⚙️ WHATSAPP DYNAMIC COMMANDS FOR MULTI-SOURCE & MULTI-TARGET MANAGEMENT
-            // =========================================================================
-            if (msgText.toLowerCase().startsWith('!addsource')) {
-                const queryContent = msgText.slice(10).trim();
-                const jidsToAdd = queryContent ? queryContent.split(/[\s,]+/).filter(Boolean) : [rawFrom];
-                
-                config.sourceJids = config.sourceJids || [];
-                let addedCount = 0;
-                let alreadyExists = 0;
-
-                for (let jid of jidsToAdd) {
-                    if (!config.sourceJids.includes(jid)) {
-                        config.sourceJids.push(jid);
-                        addedCount++;
-                    } else {
-                        alreadyExists++;
+            // 5. MANUAL FORWARD COMMAND (!forward)
+            if (msgText.toLowerCase().startsWith('!forward')) {
+                try {
+                    const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
+                    if (!quotedMsg) {
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam us message ko reply karke !forward likhen jo aap bhejwana chahte hain!' }, { quoted: wasi_msg });
+                        return;
                     }
-                }
 
-                if (addedCount > 0) {
-                    saveBotConfig();
-                }
-
-                await wasi_sock.sendMessage(rawFrom, { text: `✅ Successfully added ${addedCount} source JID(s).\n⚠️ Already existing: ${alreadyExists}` }, { quoted: wasi_msg });
-                return;
-            }
-
-            if (msgText.toLowerCase().startsWith('!rmsource')) {
-                const parts = msgText.split(' ');
-                const targetJidToRm = parts[1] ? parts[1].trim() : rawFrom;
-                
-                config.sourceJids = config.sourceJids || [];
-                config.sourceJids = config.sourceJids.filter(id => id !== targetJidToRm);
-                saveBotConfig();
-                await wasi_sock.sendMessage(rawFrom, { text: `🗑️ Removed source JID:\n\`${targetJidToRm}\`` }, { quoted: wasi_msg });
-                return;
-            }
-
-            if (msgText.toLowerCase().startsWith('!addtarget')) {
-                const queryContent = msgText.slice(10).trim();
-                const jidsToAdd = queryContent ? queryContent.split(/[\s,]+/).filter(Boolean) : [rawFrom];
-                
-                config.targetJids = config.targetJids || [];
-                let addedCount = 0;
-                let alreadyExists = 0;
-
-                for (let jid of jidsToAdd) {
-                    if (!config.targetJids.includes(jid)) {
-                        config.targetJids.push(jid);
-                        addedCount++;
-                    } else {
-                        alreadyExists++;
+                    const targetList = getTargetJids();
+                    if (targetList.length === 0) {
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Koi target JID configure nahi hai!' }, { quoted: wasi_msg });
+                        return;
                     }
+
+                    for (const targetJid of targetList) {
+                        await wasi_sock.sendMessage(targetJid, quotedMsg);
+                    }
+
+                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target groups par forward kar diya gaya hai!' }, { quoted: wasi_msg });
+                } catch (err) {
+                    await wasi_sock.sendMessage(rawFrom, { text: `❌ Forward karne mein nakami: ${err.message}` }, { quoted: wasi_msg });
                 }
-
-                if (addedCount > 0) {
-                    saveBotConfig();
-                }
-
-                await wasi_sock.sendMessage(rawFrom, { text: `✅ Successfully added ${addedCount} target JID(s).\n⚠️ Already existing: ${alreadyExists}` }, { quoted: wasi_msg });
-                return;
-            }
-
-            if (msgText.toLowerCase().startsWith('!rmtarget')) {
-                const parts = msgText.split(' ');
-                const targetJidToRm = parts[1] ? parts[1].trim() : rawFrom;
-                
-                config.targetJids = config.targetJids || [];
-                config.targetJids = config.targetJids.filter(id => id !== targetJidToRm);
-                saveBotConfig();
-                await wasi_sock.sendMessage(rawFrom, { text: `🗑️ Removed target JID:\n\`${targetJidToRm}\`` }, { quoted: wasi_msg });
-                return;
-            }
-
-            if (msgText.toLowerCase() === '!viewlists') {
-                const sources = getSourceJids();
-                const targets = getTargetJids();
-                let listText = `📋 *Current Forwarding Setup:*\n\n`;
-                listText += `📥 *Source JIDs (${sources.length}):*\n`;
-                sources.forEach((s, i) => listText += `${i + 1}. \`${s}\`\n`);
-                listText += `\n📤 *Target JIDs (${targets.length}):*\n`;
-                targets.forEach((t, i) => listText += `${i + 1}. \`${t}\`\n`);
-
-                await wasi_sock.sendMessage(rawFrom, { text: listText }, { quoted: wasi_msg });
                 return;
             }
              
@@ -522,7 +433,7 @@ wasi_app.get('/api/health', async (req, res) => {
 function wasi_startServer() {
     wasi_app.listen(wasi_port, () => {
         console.log(`🌐 Server running on port ${wasi_port}`);
-        console.log(`🤖 Bot Commands active: !ping, !jid, !gjid, !join, !addsource, !addtarget, !viewlists`);
+        console.log(`🤖 Bot Commands active: !ping, !jid, !gjid, !join, !forward`);
     });
 }
 
