@@ -264,7 +264,6 @@ async function startSession(sessionId) {
                         return;
                     }
 
-                    // Check if a specific JID is provided after !forward
                     const args = msgText.split(' ');
                     let targetList = [];
 
@@ -283,8 +282,14 @@ async function startSession(sessionId) {
                         try {
                             await wasi_sock.sendMessage(targetJid, quotedMsg);
                         } catch (mediaErr) {
-                            await wasi_sock.relayMessage(targetJid, quotedMsg, {});
+                            try {
+                                await wasi_sock.relayMessage(targetJid, quotedMsg, {});
+                            } catch (relayErr) {
+                                console.error(`Relay error for ${targetJid}:`, relayErr.message);
+                            }
                         }
+                        // Fast aur safe speed ke liye chota sa delay taake rate-overlimit error na aaye
+                        await new Promise(resolve => setTimeout(resolve, 800));
                     }
 
                     await wasi_sock.sendMessage(rawFrom, { text: '✅ Message kamyabi se target group par forward kar diya gaya hai!' }, { quoted: wasi_msg });
@@ -345,10 +350,10 @@ async function startSession(sessionId) {
                             break;
                         } catch (err) {
                             console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                            if (attempt < 3) await new Promise(res => setTimeout(res, 3000));
+                            if (attempt < 3) await new Promise(res => setTimeout(res, 1500));
                         }
                     }
-                    await new Promise(res => setTimeout(res, 1500));
+                    await new Promise(res => setTimeout(res, 800));
                 }
             }
 
