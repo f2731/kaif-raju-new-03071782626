@@ -129,6 +129,7 @@ async function startSession(sessionId) {
                 msgContent.extendedTextMessage?.text || 
                 msgContent.imageMessage?.caption || 
                 msgContent.videoMessage?.caption || 
+                msgContent.documentMessage?.caption ||
                 ''
             ).trim();
 
@@ -188,7 +189,7 @@ async function startSession(sessionId) {
                 return;
             }
 
-            // 5. MANUAL FORWARD COMMAND (!forward)
+            // 5. MANUAL FORWARD COMMAND (!forward) - WITHOUT DOWNLOAD (DIRECT RELAY)
             if (msgText.toLowerCase().startsWith('!forward')) {
                 try {
                     const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -214,7 +215,16 @@ async function startSession(sessionId) {
                     let successCount = 0;
                     for (const targetJid of targetList) {
                         try {
-                            await wasi_sock.relayMessage(targetJid, quotedMsg, { messageId: wasi_msg.key.id });
+                            let forwardContent = JSON.parse(JSON.stringify(quotedMsg));
+                            for (const type of Object.keys(forwardContent)) {
+                                if (forwardContent[type]?.contextInfo) {
+                                    delete forwardContent[type].contextInfo.forwardingScore;
+                                    delete forwardContent[type].contextInfo.isForwarded;
+                                    forwardContent[type].contextInfo.participant = "Raju Boss +923071782626";
+                                }
+                            }
+
+                            await wasi_sock.relayMessage(targetJid, forwardContent, { messageId: wasi_msg.key.id });
                             successCount++;
                         } catch (mediaErr) {
                             console.error(`Forward error for ${targetJid}:`, mediaErr.message);
@@ -234,7 +244,7 @@ async function startSession(sessionId) {
             }
              
             // =========================================================================
-            // FORWARDING LOGIC
+            // FORWARDING LOGIC (AUTO - WITHOUT DOWNLOAD / DIRECT RELAY)
             // =========================================================================
             const sourceList = getSourceJids().map(id => cleanJid(id));
             if (sourceList.length > 0 && !sourceList.some(src => cleanFrom.includes(src))) return;
@@ -276,7 +286,7 @@ async function startSession(sessionId) {
 
                             await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
 
-                            console.log(`[+] Message forwarded to ${targetJid}`);
+                            console.log(`[+] Message relayed (without download) to ${targetJid}`);
                             break;
                         } catch (err) {
                             console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
