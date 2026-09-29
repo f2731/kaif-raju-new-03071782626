@@ -1,4 +1,3 @@
-ain startup error:', err));
 require('dotenv').config();
 const {
     DisconnectReason,
@@ -32,6 +31,7 @@ wasi_app.use(express.static(path.join(__dirname, 'public')));
 
 // Keep-Alive Route
 wasi_app.get('/ping', (req, res) => res.status(200).send('pong'));
+
 // Auto Clear Memory every 30 minutes
 setInterval(() => {
     try {
@@ -50,74 +50,6 @@ function getSourceJids() {
 
 function getTargetJids() {
     return process.env.TARGET_JIDS ? process.env.TARGET_JIDS.split(',').map(id => id.trim()).filter(Boolean) : [];
-}
-
-const OLD_TEXT_REGEX = process.env.OLD_TEXT_REGEX
-    ? process.env.OLD_TEXT_REGEX.split(',').map(pattern => {
-        try {
-            return pattern.trim() ? new RegExp(pattern.trim(), 'gu') : null;
-        } catch (e) {
-            console.error(`Invalid regex pattern: ${pattern}`, e);
-            return null;
-        }
-      }).filter(regex => regex !== null)
-    : [];
-
-const NEW_TEXT = process.env.NEW_TEXT
-    ? process.env.NEW_TEXT
-    : '';
-
-// -----------------------------------------------------------------------------
-// HELPER FUNCTIONS FOR MESSAGE CLEANING
-// -----------------------------------------------------------------------------
-
-function cleanForwardedLabel(message) {
-    try {
-        let cleanedMessage = JSON.parse(JSON.stringify(message));
-        
-        ['extendedTextMessage', 'imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'].forEach(msgType => {
-            if (cleanedMessage[msgType]?.contextInfo) {
-                cleanedMessage[msgType].contextInfo.isForwarded = false;
-                if (cleanedMessage[msgType].contextInfo.forwardingScore) {
-                    cleanedMessage[msgType].contextInfo.forwardingScore = 0;
-                }
-            }
-        });
-        
-        return cleanedMessage;
-    } catch (error) {
-        console.error('Error cleaning forwarded label:', error);
-        return message;
-    }
-}
-
-function cleanNewsletterText(text) {
-    if (!text) return text;
-    
-    const newsletterMarkers = [
-        /📢\s*/g, /🔔\s*/g, /📰\s*/g, /🗞️\s*/g,
-        /\[NEWSLETTER\]/gi, /\[BROADCAST\]/gi, /\[ANNOUNCEMENT\]/gi,
-        /Newsletter:/gi, /Broadcast:/gi, /Announcement:/gi,
-        /Forwarded many times/gi, /Forwarded message/gi, /This is a broadcast message/gi
-    ];
-    
-    let cleanedText = text;
-    newsletterMarkers.forEach(marker => {
-        cleanedText = cleanedText.replace(marker, '');
-    });
-    
-    return cleanedText.trim();
-}
-
-function replaceCaption(caption) {
-    if (!caption) return caption;
-    if (!OLD_TEXT_REGEX.length || !NEW_TEXT) return caption;
-    
-    let result = caption;
-    OLD_TEXT_REGEX.forEach(regex => {
-        result = result.replace(regex, NEW_TEXT);
-    });
-    return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -282,17 +214,10 @@ async function startSession(sessionId) {
                     let successCount = 0;
                     for (const targetJid of targetList) {
                         try {
-                            // Pehle relayMessage koshish karein taake media/file seedha forward ho jaye
                             await wasi_sock.relayMessage(targetJid, quotedMsg, { messageId: wasi_msg.key.id });
                             successCount++;
                         } catch (mediaErr) {
-                            try {
-                                // Agar relay fail ho toh sendMessage try karein
-                                await wasi_sock.sendMessage(targetJid, quotedMsg);
-                                successCount++;
-                            } catch (sendErr) {
-                                console.error(`Forward error for ${targetJid}:`, sendErr.message);
-                            }
+                            console.error(`Forward error for ${targetJid}:`, mediaErr.message);
                         }
                         await new Promise(resolve => setTimeout(resolve, 800));
                     }
@@ -349,11 +274,7 @@ async function startSession(sessionId) {
                                 }
                             }
 
-                            try {
-                                await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
-                            } catch (mediaErr) {
-                                await wasi_sock.sendMessage(targetJid, cleanMessage);
-                            }
+                            await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
 
                             console.log(`[+] Message forwarded to ${targetJid}`);
                             break;
@@ -441,7 +362,7 @@ wasi_app.get('/api/sessions', async (req, res) => {
         sessionId: id,
         isConnected: sessions.get(id)?.isConnected || false
     }));
-    res.json({ success: true, sessions: sessionList, total: sessionList.length });
+    res.json({ success: true, sessions: sessions: sessionList, total: sessionList.length });
 });
 
 wasi_app.get('/api/health', async (req, res) => {
@@ -466,7 +387,7 @@ function wasi_startServer() {
 
 // -----------------------------------------------------------------------------
 // MAIN STARTUP
-// ---------------------------------------------------
+// -----------------------------------------------------------------------------
 async function main() {
     if (config.mongoDbUrl) {
         await wasi_connectDatabase(config.mongoDbUrl);
