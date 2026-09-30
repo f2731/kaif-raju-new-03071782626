@@ -177,7 +177,7 @@ async function startSession(sessionId) {
                     const match = quotedText.match(/chat\.whatsapp\.com\/([0-9A-Za-z]{20,24})/);
                     
                     if (!match) {
-                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam kisi aisay message ko reply karein jis mein WhatsApp group ka link ho!' }, { quoted: wasi_msg });
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam kisi aisay message کو reply karein jis mein WhatsApp group ka link ho!' }, { quoted: wasi_msg });
                         return;
                     }
 
@@ -255,10 +255,10 @@ async function startSession(sessionId) {
             }
              
             // =========================================================================
-            // FORWARDING LOGIC (AUTO - WITHOUT DOWNLOAD / DIRECT RELAY)
+            // ⚡ FORWARD TYPE FILTERING LOGIC (VIDEO, IMAGE, DOCUMENT & ALBUM ALLOWED)
             // =========================================================================
             const sourceList = getSourceJids().map(id => cleanJid(id));
-            if (sourceList.length > 0 && !sourceList.some(src => cleanFrom.includes(src))) return;
+            if (sourceList.length > 0 && sourceList[0] !== '' && !sourceList.some(src => cleanFrom.includes(src))) return;
 
             const targetList = getTargetJids().map(id => id.trim()).filter(Boolean);
             if (targetList.length === 0) return;
@@ -268,18 +268,22 @@ async function startSession(sessionId) {
                 .split(',')
                 .map(t => t.trim());
 
-            const isVideo = !!(msgContent.videoMessage);
-            const isImage = !!(msgContent.imageMessage);
+            const isVideo = !!(msgContent.videoMessage || msgContent.ephemeralMessage?.message?.videoMessage || msgContent.viewOnceMessage?.message?.videoMessage || msgContent.viewOnceMessageV2?.message?.videoMessage);
+            const isImage = !!(msgContent.imageMessage || msgContent.ephemeralMessage?.message?.imageMessage || msgContent.viewOnceMessage?.message?.imageMessage || msgContent.viewOnceMessageV2?.message?.imageMessage);
+            const isDocument = !!(msgContent.documentMessage || msgContent.ephemeralMessage?.message?.documentMessage);
             const isText = !!(msgContent.conversation || msgContent.extendedTextMessage);
-            const isDocument = !!(msgContent.documentMessage);
             const isSticker = !!(msgContent.stickerMessage);
+            
+            // البم اور ملٹی میڈیا پروٹیکشن
+            const isAlbum = !!(msgContent.groupInviteMessage || msgContent.pollCreationMessage || msgContent.buttonsMessage || msgContent.templateMessage || msgContent.listMessage || msgContent.reactionMessage || msgContent.albumMessage || msgContent.imageMessage?.isViewOnce || msgContent.videoMessage?.contextInfo || msgContent.ephemeralMessage);
 
             let shouldForward = false;
             if (isVideo && allowedTypes.includes('video')) shouldForward = true;
             if (isImage && allowedTypes.includes('image')) shouldForward = true;
-            if (isText && allowedTypes.includes('text')) shouldForward = true;
             if (isDocument && allowedTypes.includes('document')) shouldForward = true;
+            if (isText && allowedTypes.includes('text')) shouldForward = true;
             if (isSticker && allowedTypes.includes('sticker')) shouldForward = true;
+            if (isAlbum) shouldForward = true;
 
             if (shouldForward) {
                 for (const targetJid of targetList) {
@@ -287,24 +291,33 @@ async function startSession(sessionId) {
                         try {
                             let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
 
-                            for (const type of Object.keys(cleanMessage)) {
-                                if (cleanMessage[type]?.contextInfo) {
-                                    delete cleanMessage[type].contextInfo.forwardingScore;
-                                    delete cleanMessage[type].contextInfo.isForwarded;
-                                    cleanMessage[type].contextInfo.participant = "Raju Boss +923071782626";
+                            const cleanContext = (obj) => {
+                                if (!obj || typeof obj !== 'object') return;
+                                if (obj.contextInfo) {
+                                    delete obj.contextInfo.forwardingScore;
+                                    delete obj.contextInfo.isForwarded;
+                                    obj.contextInfo.participant = "Raju Boss +923071782626";
                                 }
-                            }
+                                for (let key of Object.keys(obj)) {
+                                    if (typeof obj[key] === 'object') {
+                                        cleanContext(obj[key]);
+                                    }
+                                }
+                            };
+                            cleanContext(cleanMessage);
 
+                            // البم اور بڑی فائلوں کے لیے براہ راست relayMessage استعمال کریں تاکہ سیکنڈوں میں جائے
                             await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
 
-                            console.log(`[+] Message relayed (without download) to ${targetJid}`);
+                            console.log(`[+] Album/Media forwarded successfully to ${targetJid}`);
                             break;
                         } catch (err) {
                             console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                            if (attempt < 3) await new Promise(res => setTimeout(res, 1500));
+                            if (attempt < 3) await new Promise(res => setTimeout(res, 2000));
                         }
                     }
-                    await new Promise(res => setTimeout(res, 800));
+                    
+                    await new Promise(res => setTimeout(res, 1000));
                 }
             }
 
