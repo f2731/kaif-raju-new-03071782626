@@ -20,38 +20,7 @@ const wasi_port = process.env.PORT || 3000;
 
 const QRCode = require('qrcode');
 
-// -----------------------------------------------------------------------------
-// SESSION STATE & PERMANENT STORAGE FILE SETUP
-// -----------------------------------------------------------------------------
 const sessions = new Map();
-const CONFIG_FILE = path.join(__dirname, 'posters_config.json');
-
-let botConfig = {
-    targetCustomPoster: null,
-    sourceTargetPosterHash: null
-};
-
-function loadBotConfig() {
-    try {
-        if (fs.existsSync(CONFIG_FILE)) {
-            const data = fs.readFileSync(CONFIG_FILE, 'utf8');
-            botConfig = JSON.parse(data);
-            console.log('✅ Saved posters config loaded successfully!');
-        }
-    } catch (e) {
-        console.error('❌ Error loading config file:', e.message);
-    }
-}
-
-function saveBotConfig() {
-    try {
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(botConfig, null, 2), 'utf8');
-    } catch (e) {
-        console.error('❌ Error saving config file:', e.message);
-    }
-}
-
-loadBotConfig();
 
 wasi_app.use(express.json());
 wasi_app.use(express.static(path.join(__dirname, 'public')));
@@ -180,51 +149,9 @@ async function startSession(sessionId) {
                 await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
                 return;
             }
-
-            // 3. !settarget COMMAND
-            if (msgText.toLowerCase() === '!settarget') {
-                try {
-                    const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
-                    const targetImage = quotedMsg?.imageMessage || msgContent.imageMessage;
-
-                    if (!targetImage) {
-                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam us naye poster ko reply karein jo aap apne target group mein bhejna chahte hain!' }, { quoted: wasi_msg });
-                        return;
-                    }
-
-                    botConfig.targetCustomPoster = targetImage;
-                    saveBotConfig();
-
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Target poster kamyabi se save ho gaya hai!' }, { quoted: wasi_msg });
-                } catch (err) {
-                    await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
-                }
-                return;
-            }
-
-            // 4. !setsource COMMAND
-            if (msgText.toLowerCase() === '!setsource') {
-                try {
-                    const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
-                    const sourceImage = quotedMsg?.imageMessage || msgContent.imageMessage;
-
-                    if (!sourceImage || !sourceImage.fileSha256) {
-                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam us purane/source poster ko reply karein!' }, { quoted: wasi_msg });
-                        return;
-                    }
-
-                    botConfig.sourceTargetPosterHash = Buffer.from(sourceImage.fileSha256).toString('hex');
-                    saveBotConfig();
-
-                    await wasi_sock.sendMessage(rawFrom, { text: `✅ Source poster ka Hash (${botConfig.sourceTargetPosterHash}) save ho gaya hai!` }, { quoted: wasi_msg });
-                } catch (err) {
-                    await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
-                }
-                return;
-            }
              
             // =========================================================================
-            // ⚡ AUTO FORWARD & SMART POSTER REPLACEMENT LOGIC
+            // ⚡ SIMPLE AUTO FORWARD LOGIC
             // =========================================================================
             const sourceList = getSourceJids().map(id => cleanJid(id));
             if (sourceList.length > 0 && sourceList[0] !== '' && !sourceList.some(src => cleanFrom.includes(src))) return;
@@ -252,7 +179,6 @@ async function startSession(sessionId) {
                         };
                         cleanContext(cleanMessage);
 
-                        // Text Replacements
                         if (cleanMessage.imageMessage?.caption) {
                             cleanMessage.imageMessage.caption = replaceCaption(cleanMessage.imageMessage.caption);
                         }
@@ -261,26 +187,6 @@ async function startSession(sessionId) {
                         }
                         if (cleanMessage.extendedTextMessage?.text) {
                             cleanMessage.extendedTextMessage.text = replaceCaption(cleanMessage.extendedTextMessage.text);
-                        }
-
-                        // 🔄 UPDATED SMART POSTER REPLACEMENT CHECK
-                        let incomingImage = cleanMessage.imageMessage || cleanMessage.ephemeralMessage?.message?.imageMessage;
-                        
-                        if (incomingImage && incomingImage.fileSha256 && botConfig.targetCustomPoster && botConfig.sourceTargetPosterHash) {
-                            const incomingHash = Buffer.from(incomingImage.fileSha256).toString('hex');
-                            
-                            console.log(`[DEBUG] Incoming Hash: ${incomingHash}`);
-                            console.log(`[DEBUG] Saved Hash: ${botConfig.sourceTargetPosterHash}`);
-
-                            if (incomingHash === botConfig.sourceTargetPosterHash) {
-                                // Direct replace image properties cleanly
-                                if (cleanMessage.imageMessage) {
-                                    cleanMessage.imageMessage = JSON.parse(JSON.stringify(botConfig.targetCustomPoster));
-                                } else if (cleanMessage.ephemeralMessage?.message?.imageMessage) {
-                                    cleanMessage.ephemeralMessage.message.imageMessage = JSON.parse(JSON.stringify(botConfig.targetCustomPoster));
-                                }
-                                console.log('[+] Target poster successfully replaced via deep object copy!');
-                            }
                         }
 
                         await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
@@ -326,11 +232,7 @@ wasi_app.get('/api/status', async (req, res) => {
         dbConnected,
         phoneNumber: connected ? 'Connected ✅' : '-',
         lastActive: new Date().toISOString(),
-        activeSessions: Array.from(sessions.keys()),
-        currentConfig: {
-            hasTargetPoster: !!botConfig.targetCustomPoster,
-            hasSourceHash: !!botConfig.sourceTargetPosterHash
-        }
+        activeSessions: Array.from(sessions.keys())
     });
 });
 
@@ -350,7 +252,7 @@ wasi_app.post('/api/restart', async (req, res) => {
 function wasi_startServer() {
     wasi_app.listen(wasi_port, () => {
         console.log(`🌐 Server running on port ${wasi_port}`);
-        console.log(`🤖 Bot Commands active: !ping, !jid, !settarget, !setsource`);
+        console.log(`🤖 Bot Commands active: !ping, !jid`);
     });
 }
 
