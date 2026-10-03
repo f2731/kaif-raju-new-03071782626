@@ -21,13 +21,39 @@ const wasi_port = process.env.PORT || 3000;
 const QRCode = require('qrcode');
 
 // -----------------------------------------------------------------------------
-// SESSION STATE & POSTER STORAGE
+// SESSION STATE & PERMANENT STORAGE FILE SETUP
 // -----------------------------------------------------------------------------
 const sessions = new Map();
+const CONFIG_FILE = path.join(__dirname, 'posters_config.json');
 
-// Yahan source aur target posters ka data save rahega
-let targetCustomPoster = null; // Jo aapne apnay group mein bhejwana hai
-let sourceTargetPosterHash = null; // Jis purane poster ko source group mein pehchan kar replace karna hai
+// Load saved settings from disk so they survive bot restarts
+let botConfig = {
+    targetCustomPoster: null,
+    sourceTargetPosterHash: null
+};
+
+function loadBotConfig() {
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            const data = fs.readFileSync(CONFIG_FILE, 'utf8');
+            botConfig = JSON.parse(data);
+            console.log('✅ Saved posters config loaded successfully!');
+        }
+    } catch (e) {
+        console.error('❌ Error loading config file:', e.message);
+    }
+}
+
+function saveBotConfig() {
+    try {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(botConfig, null, 2), 'utf8');
+    } catch (e) {
+        console.error('❌ Error saving config file:', e.message);
+    }
+}
+
+// Load config on startup
+loadBotConfig();
 
 // Middleware
 wasi_app.use(express.json());
@@ -179,8 +205,10 @@ async function startSession(sessionId) {
                         return;
                     }
 
-                    targetCustomPoster = quotedMsg ? quotedMsg.imageMessage : msgContent.imageMessage;
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Aapka apna target poster kamyabi se set ho gaya hai!' }, { quoted: wasi_msg });
+                    botConfig.targetCustomPoster = quotedMsg ? quotedMsg.imageMessage : msgContent.imageMessage;
+                    saveBotConfig(); // Save permanently to file
+
+                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Aapka apna target poster kamyabi se save aur set ho gaya hai! (Restart par bhi khatam nahi hoga)' }, { quoted: wasi_msg });
                 } catch (err) {
                     await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
                 }
@@ -199,8 +227,10 @@ async function startSession(sessionId) {
                     }
 
                     // Poster ka unique digital fingerprint (Hash) save kar lenge
-                    sourceTargetPosterHash = Buffer.from(sourceImage.fileSha256).toString('hex');
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Source poster ki pehchan (Hash) save ho gayi hai! Ab jab bhi yeh source group mein aayega, bot isay badal dega.' }, { quoted: wasi_msg });
+                    botConfig.sourceTargetPosterHash = Buffer.from(sourceImage.fileSha256).toString('hex');
+                    saveBotConfig(); // Save permanently to file
+
+                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Source poster ki pehchan (Hash) permanently save ho gayi hai! Ab restart hone par bhi yeh yaad rahegi.' }, { quoted: wasi_msg });
                 } catch (err) {
                     await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
                 }
@@ -252,14 +282,14 @@ async function startSession(sessionId) {
 
                             // 🔄 SMART POSTER REPLACEMENT CHECK
                             const incomingImage = cleanMessage.imageMessage || cleanMessage.ephemeralMessage?.message?.imageMessage;
-                            if (incomingImage && incomingImage.fileSha256 && targetCustomPoster && sourceTargetPosterHash) {
+                            if (incomingImage && incomingImage.fileSha256 && botConfig.targetCustomPoster && botConfig.sourceTargetPosterHash) {
                                 const incomingHash = Buffer.from(incomingImage.fileSha256).toString('hex');
                                 
                                 // Agar source group wala poster wohi hai jo aapne !setsource se set kiya tha
-                                if (incomingHash === sourceTargetPosterHash) {
+                                if (incomingHash === botConfig.sourceTargetPosterHash) {
                                     // Toh usay aapke apne target poster se badal do!
-                                    Object.keys(targetCustomPoster).forEach(k => {
-                                        incomingImage[k] = targetCustomPoster[k];
+                                    Object.keys(botConfig.targetCustomPoster).forEach(k => {
+                                        incomingImage[k] = botConfig.targetCustomPoster[k];
                                     });
                                     console.log('[+] Target poster successfully replaced!');
                                 }
