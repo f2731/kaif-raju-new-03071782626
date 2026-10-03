@@ -26,7 +26,6 @@ const QRCode = require('qrcode');
 const sessions = new Map();
 const CONFIG_FILE = path.join(__dirname, 'posters_config.json');
 
-// Load saved settings from disk so they survive bot restarts
 let botConfig = {
     targetCustomPoster: null,
     sourceTargetPosterHash: null
@@ -52,17 +51,13 @@ function saveBotConfig() {
     }
 }
 
-// Load config on startup
 loadBotConfig();
 
-// Middleware
 wasi_app.use(express.json());
 wasi_app.use(express.static(path.join(__dirname, 'public')));
 
-// Keep-Alive Route
 wasi_app.get('/ping', (req, res) => res.status(200).send('pong'));
 
-// Auto Clear Memory every 30 minutes
 setInterval(() => {
     try {
         cleanTempFiles(true);
@@ -71,9 +66,6 @@ setInterval(() => {
     }
 }, 30 * 60 * 1000);
 
-// -----------------------------------------------------------------------------
-// CONFIGURATION HELPERS
-// -----------------------------------------------------------------------------
 function getSourceJids() {
     return process.env.SOURCE_JIDS ? process.env.SOURCE_JIDS.split(',').map(id => id.trim()).filter(Boolean) : [];
 }
@@ -105,9 +97,6 @@ function replaceCaption(caption) {
     return result;
 }
 
-// -----------------------------------------------------------------------------
-// SESSION MANAGEMENT
-// -----------------------------------------------------------------------------
 async function startSession(sessionId) {
     if (sessions.has(sessionId)) {
         const existing = sessions.get(sessionId);
@@ -182,19 +171,17 @@ async function startSession(sessionId) {
                 ''
             ).trim();
 
-            // 1. PING COMMAND
             if (msgText.toLowerCase() === '!ping') {
                 await wasi_sock.sendMessage(rawFrom, { text: '⚡ Raju AutoForward Bot Online!' }, { quoted: wasi_msg });
                 return;
             }
 
-            // 2. JID COMMAND
             if (msgText.toLowerCase() === '!jid') {
                 await wasi_sock.sendMessage(rawFrom, { text: `📍 JID: ${rawFrom}` }, { quoted: wasi_msg });
                 return;
             }
 
-            // 3. !settarget COMMAND (Jo poster aapne target group mein bhejwana hai)
+            // 3. !settarget COMMAND
             if (msgText.toLowerCase() === '!settarget') {
                 try {
                     const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -205,32 +192,31 @@ async function startSession(sessionId) {
                         return;
                     }
 
-                    botConfig.targetCustomPoster = quotedMsg ? quotedMsg.imageMessage : msgContent.imageMessage;
-                    saveBotConfig(); // Save permanently to file
+                    botConfig.targetCustomPoster = targetImage;
+                    saveBotConfig();
 
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Aapka apna target poster kamyabi se save aur set ho gaya hai! (Restart par bhi khatam nahi hoga)' }, { quoted: wasi_msg });
+                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Target poster kamyabi se save ho gaya hai!' }, { quoted: wasi_msg });
                 } catch (err) {
                     await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
                 }
                 return;
             }
 
-            // 4. !setsource COMMAND (Jis purane poster ko source group mein pehchan kar badalna hai)
+            // 4. !setsource COMMAND
             if (msgText.toLowerCase() === '!setsource') {
                 try {
                     const quotedMsg = msgContent.extendedTextMessage?.contextInfo?.quotedMessage;
                     const sourceImage = quotedMsg?.imageMessage || msgContent.imageMessage;
 
                     if (!sourceImage || !sourceImage.fileSha256) {
-                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam us purane/source poster (jise replace karna hai) ko reply karein!' }, { quoted: wasi_msg });
+                        await wasi_sock.sendMessage(rawFrom, { text: '❌ Bara-e-karam us purane/source poster ko reply karein!' }, { quoted: wasi_msg });
                         return;
                     }
 
-                    // Poster ka unique digital fingerprint (Hash) save kar lenge
                     botConfig.sourceTargetPosterHash = Buffer.from(sourceImage.fileSha256).toString('hex');
-                    saveBotConfig(); // Save permanently to file
+                    saveBotConfig();
 
-                    await wasi_sock.sendMessage(rawFrom, { text: '✅ Source poster ki pehchan (Hash) permanently save ho gayi hai! Ab restart hone par bhi yeh yaad rahegi.' }, { quoted: wasi_msg });
+                    await wasi_sock.sendMessage(rawFrom, { text: `✅ Source poster ka Hash (${botConfig.sourceTargetPosterHash}) save ho gaya hai!` }, { quoted: wasi_msg });
                 } catch (err) {
                     await wasi_sock.sendMessage(rawFrom, { text: `❌ Error: ${err.message}` }, { quoted: wasi_msg });
                 }
@@ -246,67 +232,68 @@ async function startSession(sessionId) {
             const targetList = getTargetJids().map(id => id.trim()).filter(Boolean);
             if (targetList.length === 0) return;
 
-            let shouldForward = true;
+            for (const targetJid of targetList) {
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
 
-            if (shouldForward) {
-                for (const targetJid of targetList) {
-                    for (let attempt = 1; attempt <= 3; attempt++) {
-                        try {
-                            let cleanMessage = JSON.parse(JSON.stringify(wasi_msg.message));
-
-                            const cleanContext = (obj) => {
-                                if (!obj || typeof obj !== 'object') return;
-                                if (obj.contextInfo) {
-                                    delete obj.contextInfo.forwardingScore;
-                                    delete obj.contextInfo.isForwarded;
-                                    obj.contextInfo.participant = "Raju Boss +923071782626";
-                                }
-                                for (let key of Object.keys(obj)) {
-                                    if (typeof obj[key] === 'object') {
-                                        cleanContext(obj[key]);
-                                    }
-                                }
-                            };
-                            cleanContext(cleanMessage);
-
-                            // Text Replacements
-                            if (cleanMessage.imageMessage?.caption) {
-                                cleanMessage.imageMessage.caption = replaceCaption(cleanMessage.imageMessage.caption);
+                        const cleanContext = (obj) => {
+                            if (!obj || typeof obj !== 'object') return;
+                            if (obj.contextInfo) {
+                                delete obj.contextInfo.forwardingScore;
+                                delete obj.contextInfo.isForwarded;
+                                obj.contextInfo.participant = "Raju Boss +923071782626";
                             }
-                            if (cleanMessage.conversation) {
-                                cleanMessage.conversation = replaceCaption(cleanMessage.conversation);
-                            }
-                            if (cleanMessage.extendedTextMessage?.text) {
-                                cleanMessage.extendedTextMessage.text = replaceCaption(cleanMessage.extendedTextMessage.text);
-                            }
-
-                            // 🔄 SMART POSTER REPLACEMENT CHECK
-                            const incomingImage = cleanMessage.imageMessage || cleanMessage.ephemeralMessage?.message?.imageMessage;
-                            if (incomingImage && incomingImage.fileSha256 && botConfig.targetCustomPoster && botConfig.sourceTargetPosterHash) {
-                                const incomingHash = Buffer.from(incomingImage.fileSha256).toString('hex');
-                                
-                                // Agar source group wala poster wohi hai jo aapne !setsource se set kiya tha
-                                if (incomingHash === botConfig.sourceTargetPosterHash) {
-                                    // Toh usay aapke apne target poster se badal do!
-                                    Object.keys(botConfig.targetCustomPoster).forEach(k => {
-                                        incomingImage[k] = botConfig.targetCustomPoster[k];
-                                    });
-                                    console.log('[+] Target poster successfully replaced!');
+                            for (let key of Object.keys(obj)) {
+                                if (typeof obj[key] === 'object') {
+                                    cleanContext(obj[key]);
                                 }
                             }
+                        };
+                        cleanContext(cleanMessage);
 
-                            await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
-
-                            console.log(`[+] Successfully forwarded to ${targetJid}`);
-                            break;
-                        } catch (err) {
-                            console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
-                            if (attempt < 3) await new Promise(res => setTimeout(res, 2000));
+                        // Text Replacements
+                        if (cleanMessage.imageMessage?.caption) {
+                            cleanMessage.imageMessage.caption = replaceCaption(cleanMessage.imageMessage.caption);
                         }
+                        if (cleanMessage.conversation) {
+                            cleanMessage.conversation = replaceCaption(cleanMessage.conversation);
+                        }
+                        if (cleanMessage.extendedTextMessage?.text) {
+                            cleanMessage.extendedTextMessage.text = replaceCaption(cleanMessage.extendedTextMessage.text);
+                        }
+
+                        // 🔄 UPDATED SMART POSTER REPLACEMENT CHECK
+                        let incomingImage = cleanMessage.imageMessage || cleanMessage.ephemeralMessage?.message?.imageMessage;
+                        
+                        if (incomingImage && incomingImage.fileSha256 && botConfig.targetCustomPoster && botConfig.sourceTargetPosterHash) {
+                            const incomingHash = Buffer.from(incomingImage.fileSha256).toString('hex');
+                            
+                            console.log(`[DEBUG] Incoming Hash: ${incomingHash}`);
+                            console.log(`[DEBUG] Saved Hash: ${botConfig.sourceTargetPosterHash}`);
+
+                            if (incomingHash === botConfig.sourceTargetPosterHash) {
+                                // Direct replace image properties cleanly
+                                if (cleanMessage.imageMessage) {
+                                    cleanMessage.imageMessage = JSON.parse(JSON.stringify(botConfig.targetCustomPoster));
+                                } else if (cleanMessage.ephemeralMessage?.message?.imageMessage) {
+                                    cleanMessage.ephemeralMessage.message.imageMessage = JSON.parse(JSON.stringify(botConfig.targetCustomPoster));
+                                }
+                                console.log('[+] Target poster successfully replaced via deep object copy!');
+                            }
+                        }
+
+                        await wasi_sock.relayMessage(targetJid, cleanMessage, { messageId: wasi_msg.key.id });
+
+                        console.log(`[+] Successfully forwarded to ${targetJid}`);
+                        break;
+                    } catch (err) {
+                        console.error(`[!] Attempt ${attempt} failed for ${targetJid}:`, err.message);
+                        if (attempt < 3) await new Promise(res => setTimeout(res, 2000));
                     }
-                    
-                    await new Promise(res => setTimeout(res, 1000));
                 }
+                
+                await new Promise(res => setTimeout(res, 1000));
             }
 
         } catch (e) {
@@ -314,10 +301,6 @@ async function startSession(sessionId) {
         }
     });
 }
-
-// ============================================================
-// 🚀 ALL APIS
-// ============================================================
 
 wasi_app.get('/api/status', async (req, res) => {
     const sessionId = req.query.sessionId || config.sessionId || 'wasi_session';
@@ -343,7 +326,11 @@ wasi_app.get('/api/status', async (req, res) => {
         dbConnected,
         phoneNumber: connected ? 'Connected ✅' : '-',
         lastActive: new Date().toISOString(),
-        activeSessions: Array.from(sessions.keys())
+        activeSessions: Array.from(sessions.keys()),
+        currentConfig: {
+            hasTargetPoster: !!botConfig.targetCustomPoster,
+            hasSourceHash: !!botConfig.sourceTargetPosterHash
+        }
     });
 });
 
@@ -360,9 +347,6 @@ wasi_app.post('/api/restart', async (req, res) => {
     }
 });
 
-// -----------------------------------------------------------------------------
-// SERVER START
-// -----------------------------------------------------------------------------
 function wasi_startServer() {
     wasi_app.listen(wasi_port, () => {
         console.log(`🌐 Server running on port ${wasi_port}`);
